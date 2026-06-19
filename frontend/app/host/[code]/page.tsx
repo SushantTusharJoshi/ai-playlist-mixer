@@ -1,7 +1,7 @@
 'use client';
 import { use, useEffect, useState, useCallback, useRef } from 'react';
 
-const API = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
+const API = process.env.NEXT_PUBLIC_API_BASE || 'https://ai-playlist-mixer-production.up.railway.app';
 async function api(path: string, opts?: RequestInit) {
   const r = await fetch(`${API}${path}`, { ...opts, headers: { 'Content-Type': 'application/json', ...opts?.headers }, cache: 'no-store' });
   if (!r.ok) throw new Error(await r.text());
@@ -39,8 +39,19 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
   const [duration, setDuration] = useState(0);
   const [seeking, setSeeking] = useState(false);
   const [ytVideoId, setYtVideoId] = useState('');
+  const [ytSrc, setYtSrc] = useState('');
+  const [ytMinimized, setYtMinimized] = useState(false);
   const posTimer = useRef<any>(null);
   const playingIdx = useRef(-1);
+
+  useEffect(() => {
+    if (ytVideoId) {
+      const startOffset = np.started_at ? Math.floor((Date.now() / 1000) - np.started_at) : 0;
+      setYtSrc('https://www.youtube.com/embed/' + ytVideoId + '?autoplay=1&rel=0&start=' + Math.max(startOffset, 0));
+    } else {
+      setYtSrc('');
+    }
+  }, [ytVideoId]);
 
   const poll = useCallback(async () => {
     try {
@@ -50,7 +61,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
       setSummary(d.ai_summary || '');
       setNp(d.now_playing || { is_playing: false });
       setHasSpotify(d.has_spotify || false);
-      // Don't auto-open YouTube - let user choose to watch
+      // YouTube sync: only update if track changed, never close user's player to watch
     } catch {}
   }, [code]);
 
@@ -201,9 +212,10 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden', width: '100%', maxWidth: 500, boxShadow: '0 -8px 32px rgba(0,0,0,0.5)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px' }}>
                 <span style={{ fontSize: 12, color: 'var(--tx2)' }}>YouTube Player</span>
-                <button onClick={() => setYtVideoId('')} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>x</button>
+                <button onClick={() => setYtMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>_</button>
+              <button onClick={() => { setYtVideoId(''); setYtMinimized(false); }} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer', marginLeft: 8 }}>x</button>
               </div>
-              <iframe width="100%" height="220" src={`https://www.youtube.com/embed/${np.youtube_id}?autoplay=1&rel=0&start=${np.started_at ? Math.floor((Date.now()/1000) - np.started_at) : 0}`} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
+              <iframe width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
             </div>
           </div>
         ) : null

@@ -21,8 +21,19 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [src, setSrc] = useState('');
   const [ytVideoId, setYtVideoId] = useState('');
+  const [ytSrc, setYtSrc] = useState('');
+  const [ytMinimized, setYtMinimized] = useState(false);
   const timer = useRef<any>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (ytVideoId) {
+      const startOffset = np.started_at ? Math.floor((Date.now() / 1000) - np.started_at) : 0;
+      setYtSrc('https://www.youtube.com/embed/' + ytVideoId + '?autoplay=1&rel=0&start=' + Math.max(startOffset, 0));
+    } else {
+      setYtSrc('');
+    }
+  }, [ytVideoId]);
 
   const poll = useCallback(async () => {
     try {
@@ -31,7 +42,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
       if (d.queue?.length) setQueue(d.queue);
       setSummary(d.ai_summary || '');
       setNp(d.now_playing || { is_playing: false });
-      // Don't auto-open YouTube - let user choose
+      // YouTube sync: only update if track changed, never close user's player
     } catch {}
   }, [code]);
 
@@ -240,9 +251,10 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden', width: '100%', maxWidth: 480, boxShadow: '0 -8px 32px rgba(0,0,0,0.5)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px' }}>
               <span style={{ fontSize: 12, color: 'var(--tx2)' }}>YouTube Player</span>
-              <button onClick={() => setYtVideoId('')} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>x</button>
+              <button onClick={() => setYtMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>_</button>
+              <button onClick={() => { setYtVideoId(''); setYtMinimized(false); }} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer', marginLeft: 8 }}>x</button>
             </div>
-            <iframe width="100%" height="220" src={'https://www.youtube.com/embed/' + np.youtube_id + '?autoplay=1&rel=0&start=' + (np.started_at ? Math.floor((Date.now()/1000) - np.started_at) : 0)} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
+            <iframe width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
           </div>
         </div>
       )}
@@ -256,7 +268,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
             {nextTrack && <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 2 }}>Up next: {nextTrack.name}</div>}
           </div>
           <span className="np-badge">PLAYING</span>
-            {np.youtube_id && !ytVideoId && <button onClick={(e) => { e.stopPropagation(); setYtVideoId(np.youtube_id); }} style={{ background: 'rgba(255,0,0,0.15)', border: '1px solid rgba(255,0,0,0.3)', color: '#f44', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Watch Video</button>}
+            {np.youtube_id && !ytVideoId && <button onClick={(e) => { e.stopPropagation(); setYtVideoId(np.youtube_id); setYtMinimized(false); }} style={{ background: 'rgba(255,0,0,0.15)', border: '1px solid rgba(255,0,0,0.3)', color: '#f44', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Watch Video</button>}
         </div>
       )}
 
