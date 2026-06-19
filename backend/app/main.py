@@ -1,5 +1,5 @@
 from __future__ import annotations
-import secrets, string, uuid
+import secrets, string, uuid, time
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException
@@ -102,7 +102,7 @@ async def generate_queue(code: str):
     if not p.members: raise HTTPException(400, "Add guests first")
 
     votes = voting_agent.get_votes(code)
-    p.queue = fairness_agent.rerank(ranking_agent.rank(p.members, votes=votes))
+    p.queue = ranking_agent.rank(p.members, votes=votes)
 
     cr = cluster_guests(p.members)
     p.cluster_info = ClusterInfo(clusters={str(k):v for k,v in cr["clusters"].items()},
@@ -126,7 +126,14 @@ def vote(code: str, req: VoteRequest):
     if code not in PARTIES: raise HTTPException(404, "Party not found")
     p = PARTIES[code]
     votes = voting_agent.vote(code, req.track_id, req.value)
-    p.queue = fairness_agent.rerank(ranking_agent.rank(p.members, votes=votes))
+    # Just update vote counts on existing queue items, don't rebuild
+    for q in p.queue:
+        q.votes = votes.get(q.track.id, 0)
+    # Re-sort by score + vote boost without wiping the queue
+    for q in p.queue:
+        base = q.score - (min(max(q.votes - req.value, -5), 5) * 0.04)  # remove old boost
+        q.score = round(base + (min(max(q.votes, -5), 5) * 0.04), 4)    # add new boost
+    p.queue.sort(key=lambda x: x.score, reverse=True)
     return {"queue":[_qi(q) for q in p.queue]}
 
 # ── Add Track ─────────────────────────────────────
@@ -137,14 +144,16 @@ def add_track(code: str, track: Track, added_by: str = ""):
     if any(q.track.id == track.id for q in p.queue):
         return {"added":False,"reason":"duplicate"}
     reason = f"added by {added_by}" if added_by else "added by search"
-    p.queue.append(QueueItem(track=track, score=0.0, reasons=[reason], votes=0, matched_users=[]))
+    p.queue.append(QueueItem(track=track, score=0.5, reasons=[reason], votes=0, matched_users=[]))
     return {"added":True,"queue_length":len(p.queue)}
 
 # ── Now Playing ───────────────────────────────────
 @app.post("/party/{code}/now-playing")
 def set_now_playing(code: str, req: NowPlayingRequest):
     if code not in PARTIES: raise HTTPException(404, "Party not found")
-    PARTIES[code].now_playing = NowPlaying(**req.model_dump())
+    data = req.model_dump()
+    data["started_at"] = time.time()
+    PARTIES[code].now_playing = NowPlaying(**data)
     return {"ok":True}
 
 @app.post("/party/{code}/stop-playing")
@@ -154,21 +163,67 @@ def stop_playing(code: str):
     return {"ok":True}
 
 # ── Search ────────────────────────────────────────
+
+# ── Queue Next (insert after current) ────────────────────────
+@app.post("/party/{code}/queue-next")
+def queue_next(code: str, track: Track, added_by: str = ""):
+    if code not in PARTIES: raise HTTPException(404, "Party not found")
+    p = PARTIES[code]
+    # Don't add duplicates
+    if any(q.track.id == track.id for q in p.queue):
+        return {"added": False, "reason": "duplicate"}
+    reason = f"queued by {added_by}" if added_by else "queued next"
+    item = QueueItem(track=track, score=0.99, reasons=[reason], votes=0, matched_users=[])
+    # Find currently playing track and insert after it
+    np_idx = -1
+    for i, q in enumerate(p.queue):
+        if q.track.id == p.now_playing.track_id:
+            np_idx = i
+            break
+    if np_idx >= 0:
+        p.queue.insert(np_idx + 1, item)
+    else:
+        p.queue.insert(0, item)  # If nothing playing, put at top
+    return {"added": True, "position": np_idx + 1, "queue_length": len(p.queue)}
+
 @app.post("/search")
 async def search_tracks(req: SearchRequest):
     q = req.query.lower().strip()
-    if not q: return {"results":[],"source":"none"}
+    if not q:
+        return {"results": [], "source": "none"}
+
+    all_results = []
+    source = "local"
+
+    # Spotify (leave room for YouTube results)
     if spotify_is_configured():
         try:
-            r = await spotify_search(q, limit=req.limit)
-            return {"results":r,"source":"spotify"}
+            sp_limit = req.limit - 3 if req.limit > 5 else max(req.limit - 2, 3)
+            sp = await spotify_search(q, limit=sp_limit)
+            all_results.extend(sp)
+            source = "spotify"
         except Exception as e:
-            print(f"Spotify search error: {e}")
-    results = [t for t in TRACK_CATALOG.values() if q in t.name.lower() or q in t.artist.lower() or any(q in g.lower() for g in t.genres)]
-    results.sort(key=lambda t: t.popularity, reverse=True)
-    return {"results":results[:req.limit],"source":"local"}
+            print(f"Spotify error: {e}")
 
-# ── Spotify Auth ──────────────────────────────────
+    # YouTube
+    try:
+        from app.services.youtube import youtube_search as yt_search, youtube_is_configured
+        if youtube_is_configured():
+            yt = await yt_search(q, limit=5)
+            for y in yt:
+                all_results.append(y)
+            source = source + "+youtube" if source != "local" else "youtube"
+    except Exception as e:
+        print(f"YouTube error: {e}")
+
+    # Local fallback
+    if not all_results:
+        local = [t.model_dump() for t in TRACK_CATALOG.values() if q in t.name.lower() or q in t.artist.lower() or any(q in g.lower() for g in t.genres)]
+        local.sort(key=lambda t: t.get("popularity", 0), reverse=True)
+        return {"results": local[:req.limit], "source": "local"}
+
+    return {"results": all_results[:req.limit], "source": source}
+
 @app.get("/auth/spotify/login")
 def spotify_login(party_code: str = ""):
     state = f"{party_code}:{secrets.token_urlsafe(8)}"

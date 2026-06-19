@@ -1,99 +1,51 @@
-"""
-LLM Agent - replaces OpenClaw with direct Claude API calls.
-ML agents handle scoring/ranking. This agent handles natural language only.
-
-Swap in Ollama by changing the summarize method to hit localhost:11434 instead.
-"""
 from __future__ import annotations
-
-from anthropic import Anthropic
-
+from openai import OpenAI
 from app.config import settings
 from app.models.schemas import QueueItem, UserProfile
 
 
 class LLMAgent:
-
-    def __init__(self) -> None:
-        if settings.anthropic_api_key:
-            self.client = Anthropic(api_key=settings.anthropic_api_key)
+    def __init__(self):
+        if getattr(settings, 'groq_api_key', ''):
+            self.client = OpenAI(api_key=settings.groq_api_key, base_url="https://api.groq.com/openai/v1")
+            self.model = "llama-3.1-70b-versatile"
+            self.provider = "groq"
+        elif getattr(settings, 'openai_api_key', ''):
+            self.client = OpenAI(api_key=settings.openai_api_key)
+            self.model = "gpt-4o-mini"
+            self.provider = "openai"
         else:
             self.client = None
+            self.model = ""
+            self.provider = "none"
 
-    async def summarize_party_taste(
-        self, users: list[UserProfile], queue: list[QueueItem]
-    ) -> str:
+    async def summarize_party_taste(self, users: list[UserProfile], queue: list[QueueItem]) -> str:
         if not self.client:
-            return self._fallback_summary(users, queue)
+            return self._fallback(users, queue)
 
-        user_summary = "\n".join(
-            f"- {u.display_name}: genres={u.top_genres}, "
-            f"energy={u.preferred_energy}, danceability={u.preferred_danceability}"
-            for u in users
-        )
-
-        queue_summary = "\n".join(
-            f"{i+1}. {q.track.name} by {q.track.artist} "
-            f"(score={q.score}, genres={q.track.genres}, matched={q.matched_users})"
-            for i, q in enumerate(queue[:8])
-        )
-
-        prompt = f"""You are the AI DJ for a social party playlist mixer app.
-
-Guests at this party:
-{user_summary}
-
-Generated queue (ranked by ML scoring):
-{queue_summary}
-
-Write a 2-3 sentence party taste summary for the host explaining:
-1. What music clusters exist among the guests
-2. Why this queue order is fair to everyone
-3. One fun observation about the group's combined taste
-
-Keep it conversational, like a DJ talking to the host. No bullet points, no markdown."""
+        user_lines = "\n".join(f"- {u.display_name}: genre={u.genre}, energy={u.preferred_energy}" for u in users)
+        queue_lines = "\n".join(f"{i+1}. {q.track.name} by {q.track.artist} (score={q.score})" for i, q in enumerate(queue[:8]))
 
         try:
-            message = self.client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=300,
-                messages=[{"role": "user", "content": prompt}],
+            resp = self.client.chat.completions.create(
+                model=self.model, max_tokens=200,
+                messages=[{"role": "user", "content": f"""You are an AI DJ for a party playlist mixer.
+
+Guests:
+{user_lines}
+
+Queue (ML-ranked):
+{queue_lines}
+
+Write a 2-3 sentence party taste summary. What clusters exist, why the queue is fair, one fun observation. Conversational like a DJ."""}]
             )
-            return message.content[0].text
-        except Exception as exc:
-            return self._fallback_summary(users, queue)
+            return resp.choices[0].message.content or self._fallback(users, queue)
+        except Exception as e:
+            print(f"LLM error ({self.provider}): {e}")
+            return self._fallback(users, queue)
 
-    async def explain_track_choice(self, track_name: str, reasons: list[str], score: float) -> str:
-        """Optional: ask the LLM to explain why a specific track was chosen."""
-        if not self.client:
-            return f"{track_name} scored {score} based on: {', '.join(reasons)}"
-
-        try:
-            message = self.client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=100,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"In one sentence, explain why '{track_name}' (score: {score}) "
-                        f"was picked for a party queue. Reasons: {reasons}. "
-                        f"Be brief and fun, like a DJ."
-                    ),
-                }],
-            )
-            return message.content[0].text
-        except Exception:
-            return f"{track_name} scored {score} based on: {', '.join(reasons)}"
-
-    def _fallback_summary(
-        self, users: list[UserProfile], queue: list[QueueItem]
-    ) -> str:
-        genres: set[str] = set()
+    def _fallback(self, users: list[UserProfile], queue: list[QueueItem]) -> str:
+        genres = set()
         for u in users:
             genres.update(u.top_genres)
-        top_genres = ", ".join(sorted(genres)[:5])
-        return (
-            f"Party of {len(users)} guests spanning {top_genres}. "
-            f"Queue balanced across {len(queue)} tracks using ML-based fairness ranking. "
-            f"Set ANTHROPIC_API_KEY in .env for AI-powered summaries."
-        )
+        return f"Party of {len(users)} guests across {', '.join(sorted(genres)[:5])}. Queue balanced with ML fairness ranking."

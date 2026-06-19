@@ -41,7 +41,9 @@ class NowPlaying(BaseModel):
     artist: str = ""
     uri: str | None = None
     album_art: str | None = None
+    youtube_id: str | None = None
     is_playing: bool = False
+    started_at: float = 0
 
 class PartySession(BaseModel):
     code: str
@@ -80,4 +82,6 @@ class NowPlayingRequest(BaseModel):
     artist: str
     uri: str | None = None
     album_art: str | None = None
+    youtube_id: str | None = None
     is_playing: bool = True
+    started_at: float = 0
