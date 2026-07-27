@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from openai import OpenAI
+
 from app.config import settings
 from app.models.schemas import QueueItem, UserProfile
 

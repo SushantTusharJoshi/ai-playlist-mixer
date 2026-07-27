@@ -1,6 +1,9 @@
 from __future__ import annotations
-import secrets, string, uuid, time
-from urllib.parse import urlencode
+
+import secrets
+import string
+import time
+import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,8 +17,17 @@ from app.config import settings
 from app.data import AVAILABLE_GENRES, GENRE_DEFAULTS, PARTIES, TRACK_CATALOG, tracks_for_genre
 from app.ml.features import cluster_guests, user_similarity_matrix
 from app.models.schemas import (
-    ClusterInfo, CreatePartyRequest, JoinRequest, NowPlaying, NowPlayingRequest,
-    PartySession, QueueItem, SearchRequest, Track, UserProfile, VoteRequest,
+    ClusterInfo,
+    CreatePartyRequest,
+    JoinRequest,
+    NowPlaying,
+    NowPlayingRequest,
+    PartySession,
+    QueueItem,
+    SearchRequest,
+    Track,
+    UserProfile,
+    VoteRequest,
 )
 from app.services.spotify import build_spotify_login_url, exchange_code_for_token, refresh_spotify_token
 from app.services.spotify_search import spotify_is_configured, spotify_search
@@ -207,7 +219,8 @@ async def search_tracks(req: SearchRequest):
 
     # YouTube
     try:
-        from app.services.youtube import youtube_search as yt_search, youtube_is_configured
+        from app.services.youtube import youtube_is_configured
+        from app.services.youtube import youtube_search as yt_search
         if youtube_is_configured():
             yt = await yt_search(q, limit=5)
             for y in yt:

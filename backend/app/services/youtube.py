@@ -1,6 +1,8 @@
 """YouTube Data API v3 search for music fallback."""
 import urllib.parse
+
 import httpx
+
 from app.config import settings
 
 YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"

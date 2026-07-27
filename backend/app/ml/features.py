@@ -17,7 +17,6 @@ from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
 
 from app.models.schemas import Track, UserProfile
 
-
 # --- Genre vocabulary for vectorization ---
 # Expand this as you add more dummy users or pull from Spotify
 GENRE_VOCAB = [

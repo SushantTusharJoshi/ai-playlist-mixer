@@ -1,7 +1,9 @@
 """Spotify OAuth with streaming scopes for Web Playback SDK."""
 import base64
 from urllib.parse import urlencode
+
 import httpx
+
 from app.config import settings
 
 SCOPES = "streaming user-read-playback-state user-modify-playback-state user-top-read user-read-recently-played playlist-modify-public"
