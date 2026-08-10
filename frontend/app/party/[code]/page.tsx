@@ -41,8 +41,11 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
       setMembers(d.members || []);
       if (d.queue?.length) setQueue(d.queue);
       setSummary(d.ai_summary || '');
-      setNp(d.now_playing || { is_playing: false });
-      // YouTube sync: only update if track changed, never close user's player
+      setNp((prev: any) => {
+        const incoming = d.now_playing || { is_playing: false };
+        if (prev.track_id === incoming.track_id && prev.is_playing === incoming.is_playing) return prev;
+        return incoming;
+      });
     } catch {}
   }, [code]);
 
@@ -131,9 +134,9 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
                 onClick={() => setSelGenre(selGenre === g ? '' : g)}>{g}</button>
             ))}
           </div>
-          <button className="btn btn-primary" onClick={joinParty} disabled={!userName.trim() || joining}
+          <button className="btn btn-primary" onClick={joinParty} disabled={!userName.trim() || joining || members.length >= 7}
             style={{ marginTop: 24, padding: '12px 36px', fontSize: 15, borderRadius: 24 }}>
-            {joining ? 'Joining...' : 'Join the Party'}
+            {members.length >= 7 ? 'Party is full' : joining ? 'Joining...' : 'Join the Party'}
           </button>
         </div>
       </div>
@@ -254,7 +257,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
               <button onClick={() => setYtMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>_</button>
               <button onClick={() => { setYtVideoId(''); setYtMinimized(false); }} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer', marginLeft: 8 }}>x</button>
             </div>
-            <iframe width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
+            <iframe key={ytVideoId} width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
           </div>
         </div>
       )}
