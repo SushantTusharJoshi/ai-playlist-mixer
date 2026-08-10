@@ -91,6 +91,8 @@ def poll(code: str):
         "has_spotify":bool(p.spotify_token),
     }
 
+MAX_DEVICES = 7
+
 # ── Join ──────────────────────────────────────────
 @app.post("/party/{code}/join")
 def join(code: str, req: JoinRequest):
@@ -98,6 +100,8 @@ def join(code: str, req: JoinRequest):
     genre = req.genre.lower().strip()
     if genre not in GENRE_DEFAULTS: raise HTTPException(400, f"Pick from: {AVAILABLE_GENRES}")
     p = PARTIES[code]
+    if len(p.members) >= MAX_DEVICES:
+        raise HTTPException(400, f"Party is full ({MAX_DEVICES} devices max)")
     d = GENRE_DEFAULTS[genre]
     uid = f"user-{uuid.uuid4().hex[:8]}"
     u = UserProfile(id=uid, display_name=req.display_name.strip(), source="custom", genre=genre,
@@ -121,9 +125,11 @@ async def generate_queue(code: str):
                                   n_clusters=cr["n_clusters"],
                                   cluster_genres={str(k):v for k,v in cr["cluster_genres"].items()})
 
-    if llm_agent:
+    SUMMARY_COOLDOWN = 30
+    if llm_agent and (time.time() - p.last_summary_at >= SUMMARY_COOLDOWN or not p.ai_summary):
         p.ai_summary = await llm_agent.summarize_party_taste(p.members, p.queue)
-    else:
+        p.last_summary_at = time.time()
+    elif not llm_agent:
         gs = set()
         for u in p.members: gs.update(u.top_genres)
         p.ai_summary = f"Party of {len(p.members)} guests across {', '.join(sorted(gs)[:5])}. Queue balanced with ML fairness ranking."

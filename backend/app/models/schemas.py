@@ -55,6 +55,7 @@ class PartySession(BaseModel):
     queue: list[QueueItem] = Field(default_factory=list)
     cluster_info: ClusterInfo | None = None
     ai_summary: str = ""
+    last_summary_at: float = 0
     now_playing: NowPlaying = Field(default_factory=NowPlaying)
     spotify_token: str = ""
     spotify_refresh: str = ""

@@ -71,3 +71,44 @@ def test_vote(client: TestClient, party_with_member: tuple[str, str]):
 def test_party_not_found(client: TestClient):
     resp = client.get("/party/INVALID")
     assert resp.status_code == 404
+
+
+def test_join_rejects_at_capacity(client: TestClient, party_code: str):
+    genres = ["pop", "rock", "hip hop", "jazz", "edm", "r&b", "latin"]
+    for i, genre in enumerate(genres):
+        resp = client.post(
+            f"/party/{party_code}/join",
+            json={"display_name": f"User{i}", "genre": genre},
+        )
+        assert resp.status_code == 200
+
+    resp = client.post(
+        f"/party/{party_code}/join",
+        json={"display_name": "Overflow", "genre": "pop"},
+    )
+    assert resp.status_code == 400
+    assert "full" in resp.json()["detail"].lower()
+
+
+def test_join_stays_at_limit(client: TestClient, party_code: str):
+    genres = ["pop", "rock", "hip hop", "jazz", "edm", "r&b", "latin"]
+    for i, genre in enumerate(genres):
+        client.post(
+            f"/party/{party_code}/join",
+            json={"display_name": f"User{i}", "genre": genre},
+        )
+
+    resp = client.get(f"/party/{party_code}/poll")
+    assert len(resp.json()["members"]) == 7
+
+
+def test_summary_cooldown(client: TestClient, party_with_member: tuple[str, str]):
+    code, _ = party_with_member
+    resp1 = client.post(f"/party/{code}/generate-queue")
+    assert resp1.status_code == 200
+    summary1 = resp1.json()["ai_summary"]
+
+    resp2 = client.post(f"/party/{code}/generate-queue")
+    assert resp2.status_code == 200
+    summary2 = resp2.json()["ai_summary"]
+    assert summary2 == summary1

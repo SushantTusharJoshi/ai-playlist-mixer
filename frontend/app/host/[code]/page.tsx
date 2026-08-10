@@ -32,6 +32,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
   const [deviceId, setDeviceId] = useState('');
   const [spToken, setSpToken] = useState('');
   const [sdkReady, setSdkReady] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [sortBy, setSortBy] = useState<'score' | 'votes'>('score');
   const [repeatOn, setRepeatOn] = useState(false);
   const [shuffled, setShuffled] = useState(false);
@@ -59,9 +60,12 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
       setMembers(d.members || []);
       if (d.queue?.length) setQueue(d.queue);
       setSummary(d.ai_summary || '');
-      setNp(d.now_playing || { is_playing: false });
+      setNp((prev: any) => {
+        const incoming = d.now_playing || { is_playing: false };
+        if (prev.track_id === incoming.track_id && prev.is_playing === incoming.is_playing) return prev;
+        return incoming;
+      });
       setHasSpotify(d.has_spotify || false);
-      // YouTube sync: only update if track changed, never close user's player to watch
     } catch {}
   }, [code]);
 
@@ -122,7 +126,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
 
   async function addTrack(t: any) { try { const d = await api(`/party/${code}/add-track?added_by=Host`, { method: 'POST', body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) { setAdded(p => new Set(p).add(t.id)); poll(); } } catch {} }
   async function queueNext(t: any) { try { const d = await api(`/party/${code}/queue-next?added_by=Host`, { method: 'POST', body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) poll(); } catch {} }
-  async function genQueue() { setGenerating(true); try { const d = await api(`/party/${code}/generate-queue`, { method: 'POST' }); if (d.queue) setQueue(d.queue); if (d.members) setMembers(d.members); if (d.ai_summary) setSummary(d.ai_summary); } catch { alert('Add guests first'); } setGenerating(false); }
+  async function genQueue() { setGenerating(true); try { const d = await api(`/party/${code}/generate-queue`, { method: 'POST' }); if (d.queue) setQueue(d.queue); if (d.members) setMembers(d.members); if (d.ai_summary) setSummary(d.ai_summary); setCooldown(30); const t = setInterval(() => setCooldown(c => { if (c <= 1) { clearInterval(t); return 0; } return c - 1; }), 1000); } catch { alert('Add guests first'); } setGenerating(false); }
   async function vote(tid: string, v: number) { try { const d = await api(`/party/${code}/vote`, { method: 'POST', body: JSON.stringify({ track_id: tid, value: v }) }); if (d.queue) setQueue(d.queue); } catch {} }
 
   const displayQ = sortBy === 'votes' ? [...queue].sort((a, b) => b.votes - a.votes) : queue;
@@ -138,7 +142,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
           {!hasSpotify && <a href={`${apiBase()}/auth/spotify/login?party_code=${code}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#1DB954', color: '#fff', borderRadius: 20, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Connect Spotify</a>}
           {hasSpotify && <span style={{ padding: '6px 12px', background: 'var(--gnd)', color: 'var(--gn)', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>Spotify {sdkReady ? 'Ready' : 'Connected'}</span>}
           <button className="btn btn-sm btn-secondary" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/party/${code}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? 'Copied!' : 'Share Link'}</button>
-          <button className="btn btn-sm btn-primary" onClick={genQueue} disabled={generating || members.length === 0}>{generating ? 'Generating...' : 'Generate Queue'}</button>
+          <button className="btn btn-sm btn-primary" onClick={genQueue} disabled={generating || members.length === 0 || cooldown > 0}>{generating ? 'Generating...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Generate Queue'}</button>
         </div>
       </div>
 
@@ -215,7 +219,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
                 <button onClick={() => setYtMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>_</button>
               <button onClick={() => { setYtVideoId(''); setYtMinimized(false); }} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer', marginLeft: 8 }}>x</button>
               </div>
-              <iframe width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
+              <iframe key={ytVideoId} width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
             </div>
           </div>
         ) : null
