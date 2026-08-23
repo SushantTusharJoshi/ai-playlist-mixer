@@ -1,13 +1,6 @@
 'use client';
 import { use, useEffect, useState, useCallback, useRef } from 'react';
-
-const API = process.env.NEXT_PUBLIC_API_BASE || 'https://ai-playlist-mixer-production.up.railway.app';
-async function api(path: string, opts?: RequestInit) {
-  const r = await fetch(`${API}${path}`, { ...opts, headers: { 'Content-Type': 'application/json', ...opts?.headers }, cache: 'no-store' });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-function apiBase() { return API; }
+import { api, apiBase } from '@/lib/api';
 
 declare global { interface Window { onSpotifyWebPlaybackSDKReady: () => void; Spotify: any; } }
 

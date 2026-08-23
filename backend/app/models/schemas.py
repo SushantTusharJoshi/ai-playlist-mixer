@@ -74,6 +74,7 @@ class JoinDummyRequest(BaseModel):
 class VoteRequest(BaseModel):
     track_id: str
     value: Literal[-1, 1]
+    voted_by: str = ""
 
 class SearchRequest(BaseModel):
     query: str

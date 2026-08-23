@@ -33,7 +33,7 @@ from app.services.spotify import build_spotify_login_url, exchange_code_for_toke
 from app.services.spotify_search import spotify_is_configured, spotify_search
 
 app = FastAPI(title="AI Playlist Mixer", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://localhost:3001"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 profile_agent = ProfileAgent()
 ranking_agent = RankingAgent()
@@ -107,6 +107,7 @@ def join(code: str, req: JoinRequest):
     u = UserProfile(id=uid, display_name=req.display_name.strip(), source="custom", genre=genre,
                     top_genres=d["related"][:3], preferred_energy=d["energy"],
                     preferred_danceability=d["danceability"], candidate_tracks=tracks_for_genre(genre, 12))
+    u = profile_agent.normalize_dummy_user(u)
     p.members.append(u)
     return {"user_id":uid, "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members]}
 
@@ -119,6 +120,7 @@ async def generate_queue(code: str):
 
     votes = voting_agent.get_votes(code)
     p.queue = ranking_agent.rank(p.members, votes=votes)
+    p.queue = fairness_agent.rerank(p.queue)
 
     cr = cluster_guests(p.members)
     p.cluster_info = ClusterInfo(clusters={str(k):v for k,v in cr["clusters"].items()},
@@ -143,7 +145,9 @@ async def generate_queue(code: str):
 def vote(code: str, req: VoteRequest):
     if code not in PARTIES: raise HTTPException(404, "Party not found")
     p = PARTIES[code]
-    votes = voting_agent.vote(code, req.track_id, req.value)
+    if req.voted_by and voting_agent.has_voted(code, req.voted_by, req.track_id):
+        raise HTTPException(400, "You already voted on this track")
+    votes = voting_agent.vote(code, req.track_id, req.value, voted_by=req.voted_by)
     # Just update vote counts on existing queue items, don't rebuild
     for q in p.queue:
         q.votes = votes.get(q.track.id, 0)

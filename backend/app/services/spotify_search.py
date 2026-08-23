@@ -80,38 +80,5 @@ async def spotify_search(query: str, limit: int = 20) -> list[dict]:
     return tracks
 
 
-async def spotify_audio_features(track_ids: list[str]) -> dict[str, dict]:
-    """
-    Batch fetch audio features (energy, danceability, etc.) for tracks.
-    Spotify allows up to 100 IDs per request.
-    """
-    # Strip our 'sp-' prefix to get Spotify IDs
-    clean_ids = [tid.replace("sp-", "") for tid in track_ids[:100]]
-    if not clean_ids:
-        return {}
-
-    token = await _get_client_token()
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{SPOTIFY_API_URL}/audio-features",
-            params={"ids": ",".join(clean_ids)},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    features = {}
-    for af in data.get("audio_features", []):
-        if af:
-            features[f"sp-{af['id']}"] = {
-                "energy": af.get("energy", 0.5),
-                "danceability": af.get("danceability", 0.5),
-                "valence": af.get("valence", 0.5),
-                "tempo": af.get("tempo", 120),
-            }
-    return features
-
-
 def spotify_is_configured() -> bool:
     return bool(settings.spotify_client_id and settings.spotify_client_secret)
