@@ -1,7 +1,10 @@
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", extra="ignore")
+
     app_env: str = "local"
     frontend_url: str = "http://localhost:3000"
     backend_url: str = "http://localhost:8000"
@@ -12,9 +15,5 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     youtube_api_key: str = ""
     jwt_secret: str = "dev_change_me"
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
 
 settings = Settings()
