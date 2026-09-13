@@ -33,7 +33,17 @@ from app.services.spotify import build_spotify_login_url, exchange_code_for_toke
 from app.services.spotify_search import spotify_is_configured, spotify_search
 
 app = FastAPI(title="AI Playlist Mixer", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://localhost:3001"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        settings.frontend_url,
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 profile_agent = ProfileAgent()
 ranking_agent = RankingAgent()
