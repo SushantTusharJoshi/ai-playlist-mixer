@@ -2,7 +2,7 @@
 
 A real-time collaborative music platform where multiple users across devices vote, queue, and listen to the same playlist simultaneously — powered by Spotify, YouTube, and Groq AI.
 
-**Live:** [ai-playlist-mixer.vercel.app](https://ai-playlist-mixer.vercel.app) · **Backend:** [Railway](https://ai-playlist-mixer-production.up.railway.app)
+**Backend:** [Railway](https://ai-playlist-mixer-production.up.railway.app)
 
 ---
 
