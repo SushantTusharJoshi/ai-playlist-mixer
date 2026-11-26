@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     spotify_redirect_uri: str = "http://localhost:8000/auth/spotify/callback"
     anthropic_api_key: str = ""
     groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
     youtube_api_key: str = ""
     jwt_secret: str = "dev_change_me"
 

@@ -40,7 +40,7 @@ That's the actual unlock: **the room works for everyone in it, regardless of wha
 - Queue-next lets any guest bump a track to play immediately after the current one
 
 ### Groq AI Party Summary
-- Uses `llama-3.1-70b-versatile` (free tier) to analyze the session's played tracks and generate a natural-language "party taste" description
+- Uses a Groq-hosted model (default `openai/gpt-oss-120b`, set with `GROQ_MODEL`) to analyze the session's played tracks and generate a natural-language "party taste" description
 - Falls back to a static summary if the Groq key is not set
 
 ### Playback Controls
@@ -57,7 +57,7 @@ That's the actual unlock: **the room works for everyone in it, regardless of wha
 | Frontend | Next.js 15, React 19, Tailwind CSS |
 | Backend | FastAPI, Python 3.12 |
 | Music | Spotify Web Playback SDK, YouTube Data API v3 |
-| AI | Groq API (llama-3.1-70b-versatile) |
+| AI | Groq API (`openai/gpt-oss-120b` by default, `GROQ_MODEL` to change) |
 | Auth | Spotify OAuth 2.0 |
 | Deploy | Railway (backend) + Vercel (frontend) |
 

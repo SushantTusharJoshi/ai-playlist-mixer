@@ -10,7 +10,7 @@ class LLMAgent:
     def __init__(self):
         if getattr(settings, 'groq_api_key', ''):
             self.client = OpenAI(api_key=settings.groq_api_key, base_url="https://api.groq.com/openai/v1")
-            self.model = "llama-3.1-70b-versatile"
+            self.model = settings.groq_model
             self.provider = "groq"
         elif getattr(settings, 'openai_api_key', ''):
             self.client = OpenAI(api_key=settings.openai_api_key)
@@ -30,7 +30,9 @@ class LLMAgent:
 
         try:
             resp = self.client.chat.completions.create(
-                model=self.model, max_tokens=200,
+                model=self.model, max_tokens=800,
+                # gpt-oss models reason before answering; reasoning tokens count toward max_tokens
+                extra_body={"reasoning_effort": "low"} if "gpt-oss" in self.model else None,
                 messages=[{"role": "user", "content": f"""You are an AI DJ for a party playlist mixer.
 
 Guests:
