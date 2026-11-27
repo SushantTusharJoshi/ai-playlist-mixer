@@ -93,7 +93,26 @@ What the numbers say:
 - Only the host signs in to Spotify, so that cap applies to hosts, not guests. In-browser playback uses the Web Playback SDK, which needs Premium.
 - Guests never sign in. Search uses an app-level client-credentials token, so guests can search the Spotify catalog without an account.
 - YouTube results come from the YouTube Data API, and the host plays them in an embedded player. With no YouTube key, or once the per-minute YouTube budget is used, search still answers from Spotify and the local catalog.
-- How playback behaves for a host on a free Spotify account has not been tested.
+- How playback behaves for a host on a free Spotify account has not been tested. The Web API answers 403 and the player says Premium is needed.
+
+## Playback
+
+One player, `frontend/app/components/Player.tsx`, runs on both pages. Card: [player](docs/cards/player.md).
+
+- Source of truth. The server's `now_playing` decides what the room plays. It has a `seq` that goes up on every track change, so the host page loads media once per track and a 3-second poll never reloads or undoes anything.
+- Host controls. Previous, Play/Pause, Next, seek, Repeat and Shuffle call `/play`, `/next`, `/prev` and `/playback` with the host key. Next skips tracks already played and tracks this host cannot play, and puts a Play next track first. Previous goes back through a played-history list; with no history it restarts the track. A track that ends, an error skip and a tap cannot skip twice: each skip names the `seq` it saw, and the server applies only the first.
+- Sources. Spotify tracks play in the browser through the Web Playback SDK, started through the Web API with the SDK's device id. YouTube tracks play in one YouTube IFrame API player that switches videos with `loadVideoById`. Generated queue tracks (local catalog) have no source until they are played: the server finds one with a Spotify search when the host is connected, or a YouTube search when a YouTube key is set (inside the same per-minute budget), at most 3 searches per skip, cached per track.
+- Spotify token. The host page refreshes the access token through `/refresh-token` 5 minutes before it expires, whenever the SDK asks for a token, and after any 401.
+- Guests. Guests see the same card read-only: track, artist, artwork, source, progress, paused or playing, up next. For a YouTube track a guest can tap Watch here to play it on their own phone in sync with the host.
+- Tests. Backend: `backend/tests/test_playback.py`. Frontend rules: `cd frontend && npm test` (Node 23.6 or newer, no extra packages).
+
+### Playback limits
+
+- After a reload the host taps play once: browsers only start audio from a tap, so the room's position is resumed on that press.
+- Some YouTube videos do not allow embedding. The card names the reason and skips after 3 seconds.
+- A generated track with no Spotify connection and no YouTube key has no source and is skipped.
+- Only the browser tab that holds the host key plays audio. If the host opens a second tab, both can control the room, but only the tab that pressed play plays.
+- The Spotify path has been tested with a mocked SDK and Web API, not with a real Premium account.
 
 ---
 
@@ -167,6 +186,7 @@ Interview-critical functions carry a header (`What it does`, `Catch it`, `Card`)
 | Party join and code | `backend/app/main.py` `join` | the code finds the room; a secret key acts in it | [party-join](docs/cards/party-join.md) |
 | OAuth callback | `backend/app/main.py` `spotify_callback` | single-use server state decides the party | [oauth-callback](docs/cards/oauth-callback.md) |
 | Polling sync | `frontend/app/party/[code]/page.tsx` `poll` | replace only what changed, every 3 s | [polling-sync](docs/cards/polling-sync.md) |
+| Player | `frontend/app/components/Player.tsx`, `backend/app/main.py` `play_next` | one source of truth with a sequence number; skip once per seq | [player](docs/cards/player.md) |
 
 ---
 
@@ -174,9 +194,8 @@ Interview-critical functions carry a header (`What it does`, `Catch it`, `Card`)
 
 | Gap | Why | Possible fix |
 |---|---|---|
-| YouTube audio stops when the player is closed | the embed needs a visible iframe | YouTube IFrame API with `playVideo()` |
-| An open YouTube player keeps the old video when the track changes | `ytVideoId` is set only by Watch Video (from reading the code, not tested) | follow `now_playing.youtube_id` while the player is open |
-| Spotify playback may stop after the access token expires | the host page hands the SDK the first token and never calls `/refresh-token` (from reading the code, not tested) | fetch a fresh token in `getOAuthToken` |
+| The YouTube video stays on screen while it plays | YouTube needs a visible player; the player can be shrunk, not hidden | none planned |
+| Spotify refresh after a backend restart | tokens are not saved, so the host taps Connect Spotify again | save tokens encrypted |
 | Host controls live on one device | the host key is in that browser's storage | show the key as a QR code to move it |
 | Single host | if the host leaves, nobody controls playback | promote a guest |
 

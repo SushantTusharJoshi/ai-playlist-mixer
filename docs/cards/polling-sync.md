@@ -1,6 +1,6 @@
 # Card: polling sync
 
-Code: `poll` in `frontend/app/party/[code]/page.tsx` (the host page has the same pattern); server side `GET /party/{code}/poll` in `backend/app/main.py`
+Code: `poll` in `frontend/app/party/[code]/page.tsx` (the host page has the same pattern), now playing merged by `mergeNowPlaying` in `frontend/lib/player-state.ts`; server side `GET /party/{code}/poll` in `backend/app/main.py`
 
 ## The question
 
@@ -18,15 +18,17 @@ flowchart TD
     B --> C{"DECISION: reply queue empty?"}
     C -- yes --> K["keep the queue on screen"]
     C -- no --> Q["replace the queue"]
-    K --> D{"DECISION: same track and play state?"}
+    K --> D{"DECISION: older seq, or same seq and not newer?"}
     Q --> D
     D -- yes --> E["keep the old now-playing object: player untouched"]
-    D -- no --> F["RETURN: replace now playing"]
+    D -- no --> F["RETURN: replace now playing; media reloads only if seq changed"]
 ```
 
 ## Slips (what changed)
 
-- Checked in this build (PM-F7): with the YouTube player open on a guest page, three polls ran and the iframe stayed the same element, with 0 `load` events and 0 `src` changes. The fix was already on `main` (the iframe `src` depends only on `ytVideoId`, which polls never set).
+- The old rule (same track id and play state keeps the object) let a poll that left before a pause or a Next undo it on screen. Now playing carries `seq` (up on every track change) and `updated_at` (pause, resume, seek), and the merge keeps the newer one. See [player](player.md).
+- Checked in the player rebuild: three polls with the host's YouTube player open left the one iframe in place with 0 `load` events, and Next switched the video inside that same iframe.
+- Checked earlier (PM-F7): with the YouTube player open on a guest page, three polls ran and the iframe stayed the same element, with 0 `load` events and 0 `src` changes. The fix was already on `main` (the iframe `src` depends only on `ytVideoId`, which polls never set).
 - The server marks the party active on each poll (idle expiry), without writing the file.
 
 ## Interviewer questions
