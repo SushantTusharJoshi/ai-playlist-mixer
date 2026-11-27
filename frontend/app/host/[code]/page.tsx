@@ -84,14 +84,14 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{members.map((m: any) => (<span key={m.id} className="user-chip active">{m.display_name}{m.genre && <span className="tag" style={{ marginLeft: 4 }}>{m.genre}</span>}</span>))}</div>}
       </div>
 
-      <div className="card" ref={dropRef} style={{ position: 'relative' }}><div className="card-title">Search {src === 'spotify' && <span className="tag green">Spotify</span>}{src.includes('youtube') && <span className="tag" style={{ background: 'rgba(255,0,0,0.1)', color: '#f44', marginLeft: 4 }}>YouTube</span>}</div>
+      <div className="card" ref={dropRef} style={{ position: 'relative' }}><div className="card-title">Search {src.includes('spotify') && <span className="tag green">Spotify</span>}{src.includes('youtube') && <span className="tag" style={{ background: 'rgba(255,0,0,0.1)', color: '#f44', marginLeft: 4 }}>YouTube</span>}</div>
         <input className="input" placeholder="Search any song or artist..." value={sq} onChange={e => onSearch(e.target.value)} onFocus={() => results.length > 0 && setShowDrop(true)} />
         {showDrop && results.length > 0 && (<div className="search-drop">{results.map((t: any) => (
           <div key={t.id} className="search-item">
             {t.album_art ? <img src={t.album_art} alt="" /> : <div className="placeholder">&#9835;</div>}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--tx2)' }}>{t.artist} {t.youtube_id && <span style={{ color: '#f44', fontWeight: 700 }}> YT</span>}</div>
+              <div style={{ fontSize: 12, color: 'var(--tx2)' }}>{t.artist} {t.youtube_id ? <span style={{ color: '#f44', fontWeight: 700 }}> YT</span> : t.uri ? <span style={{ color: '#1DB954', fontWeight: 700 }}> Spotify</span> : null}</div>
             </div>
             <button className="btn btn-sm btn-primary" onClick={() => addTrack(t)} disabled={added.has(t.id)} style={{ padding: '4px 12px' }}>{added.has(t.id) ? '✓' : '+ Add'}</button>
             <button className="btn btn-sm btn-secondary" onClick={() => queueNext(t)} disabled={added.has(t.id)} style={{ padding: '4px 8px', fontSize: 11 }}>Next</button>
@@ -127,6 +127,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
                   {isPlaying && <span className="tag green">playing</span>}
                   {isNext && <span className="tag" style={{ background: 'rgba(96,165,250,0.15)', color: 'var(--bl)' }}>up next</span>}
                   {isYT && <span className="tag" style={{ background: 'rgba(255,0,0,0.1)', color: '#f44' }}>YT</span>}
+                  {item.uri && <span className="tag green" title={hasSpotify ? 'Plays on Spotify' : 'Plays through a YouTube match until Spotify is connected'}>Spotify</span>}
                 </div>
               </div>
               {isHost && playAs && <button className="btn btn-sm btn-secondary" onClick={() => player.current?.play(item.track_id)} title={playAs === 'match' ? 'Find this track and play it' : 'Play now'} aria-label={`Play ${item.name}`} style={{ padding: '4px 10px', fontSize: 14 }}>▶</button>}

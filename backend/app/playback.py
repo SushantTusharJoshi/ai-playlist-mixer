@@ -45,9 +45,14 @@ def source_of(track: Track, has_spotify: bool) -> str | None:
     return None
 
 
-def needs_resolving(track: Track) -> bool:
-    """Catalog tracks have neither a Spotify uri nor a video id."""
-    return not track.uri and not youtube_id_of(track)
+def needs_resolving(track: Track, has_spotify: bool) -> bool:
+    """This host has no way to play the track yet, so a source must be found for it.
+
+    Catalog tracks have neither a Spotify uri nor a video id. A Spotify search
+    result has a uri, but without a Spotify login it can only play through a
+    YouTube match.
+    """
+    return source_of(track, has_spotify) is None
 
 
 def find(queue: list[QueueItem], track_id: str) -> QueueItem | None:
@@ -75,7 +80,7 @@ def next_candidates(p: PartySession, shuffle: bool = False, rng: random.Random |
 def peek_next(p: PartySession, has_spotify: bool, resolvable: bool) -> str | None:
     """The track Next would most likely pick (shown as "Up next"); no searches."""
     for item in next_candidates(p):
-        if source_of(item.track, has_spotify) or (resolvable and needs_resolving(item.track)):
+        if source_of(item.track, has_spotify) or resolvable:
             return item.track.id
     return None
 
@@ -118,17 +123,22 @@ def end_queue(p: PartySession, now: float | None = None) -> NowPlaying:
     return p.now_playing
 
 
-def pop_previous(p: PartySession, has_spotify: bool) -> tuple[QueueItem, str] | None:
-    """Pop history until a track that is still queued and playable; None if none."""
-    while p.history:
-        tid = p.history.pop()
+def previous_candidates(p: PartySession) -> list[QueueItem]:
+    """Played tracks still in the queue, most recent first, for Previous."""
+    out: list[QueueItem] = []
+    for tid in reversed(p.history):
         item = find(p.queue, tid)
-        if item is None:
-            continue
-        src = source_of(item.track, has_spotify)
-        if src:
-            return item, src
-    return None
+        if item is not None and item not in out:
+            out.append(item)
+    return out
+
+
+def drop_history_from(p: PartySession, track_id: str) -> None:
+    """Previous went back to track_id: forget it and everything played after it."""
+    for i in range(len(p.history) - 1, -1, -1):
+        if p.history[i] == track_id:
+            del p.history[i:]
+            return
 
 
 def set_position(p: PartySession, is_playing: bool, position_ms: int, duration_ms: int,

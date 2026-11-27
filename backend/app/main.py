@@ -37,7 +37,8 @@ from app.models.schemas import (
     VoteRequest,
 )
 from app.persistence import STATE_LOCK, RoomStore, mutates
-from app.services.resolve import can_resolve, resolve_track
+from app.services.resolve import ResolveUnavailable, can_resolve, resolve_track
+from app.services.resolve import cached as resolve_cached
 from app.services.search import search_all
 from app.services.spotify import build_spotify_login_url, exchange_code_for_token, refresh_spotify_token
 from app.services.spotify_search import spotify_is_configured
@@ -328,19 +329,32 @@ def _stale(p: PartySession, expected_seq: int | None) -> bool:
 MAX_RESOLVE_PER_SKIP = 3  # bound the upstream searches one Next press can cause
 
 async def _choose(p: PartySession, candidates: list[QueueItem], has_spotify: bool) -> tuple[QueueItem, str] | None:
-    """First candidate this host can play, matching catalog tracks to a source on the way."""
-    tries = 0
+    """First candidate this host can play, finding a source on the way.
+
+    A track is passed over only when this host has no way to search for it, or
+    a search really found nothing (cached). If a search cannot run right now, or
+    the per-press search limit is reached, nothing is skipped: 503, try again.
+    """
+    resolvable = can_resolve(has_spotify)
+    searches = 0
     for item in candidates:
-        src = playback.source_of(item.track, has_spotify)
+        t = item.track
+        src = playback.source_of(t, has_spotify)
         if src:
             return item, src
-        if not playback.needs_resolving(item.track) or tries >= MAX_RESOLVE_PER_SKIP or not can_resolve(has_spotify):
-            continue
-        tries += 1
-        t = item.track
-        found = await resolve_track(t.id, t.name, t.artist, has_spotify)
+        if not resolvable:
+            continue  # no Spotify login and no YouTube key: this track cannot play here
+        known, found = resolve_cached(t.id, has_spotify)
+        if not known:
+            if searches >= MAX_RESOLVE_PER_SKIP:
+                raise HTTPException(503, "Still finding playable versions of the next tracks: press Next again")
+            searches += 1
+            try:
+                found = await resolve_track(t.id, t.name, t.artist, has_spotify)
+            except ResolveUnavailable:
+                raise HTTPException(503, "Track search is busy right now: try again in a minute") from None
         if not found:
-            continue
+            continue  # the search found nothing for this track
         with STATE_LOCK:
             # A copy: queue items share Track objects with the catalog and other parties.
             update = {k: found[k] for k in ("uri", "youtube_id") if found.get(k)}
@@ -415,20 +429,28 @@ async def play_next(code: str, req: SkipRequest, x_host_key: str | None = Header
     return await _commit(p, body)
 
 @app.post("/party/{code}/prev")
-@mutates(_store, PARTIES)
-def play_prev(code: str, req: SkipRequest, x_host_key: str | None = Header(None)):
-    p = _party(code)
-    _require_host(p, x_host_key)
-    if _stale(p, req.expected_seq):
-        return _np_reply(p, False)
-    prev = playback.pop_previous(p, bool(p.spotify_token))
-    if prev:
-        playback.set_track(p, *prev, push_current=False)  # the current track is not played yet, Next returns to it
-    elif p.now_playing.track_id:
-        playback.restart(p)  # nothing earlier: start this one again
-    else:
-        return _np_reply(p, False)
-    return _np_reply(p, True)
+async def play_prev(code: str, req: SkipRequest, x_host_key: str | None = Header(None)):
+    with STATE_LOCK:
+        p = _party(code)
+        _require_host(p, x_host_key)
+        if _stale(p, req.expected_seq):
+            return _np_reply(p, False)
+        seq = p.now_playing.seq
+        has_spotify = bool(p.spotify_token)
+        candidates = playback.previous_candidates(p)
+    choice = await _choose(p, candidates, has_spotify)
+    with STATE_LOCK:
+        if p.now_playing.seq != seq:
+            return _np_reply(p, False)
+        if choice:
+            playback.drop_history_from(p, choice[0].track.id)
+            playback.set_track(p, *choice, push_current=False)  # the current track is not played yet, Next returns to it
+        elif p.now_playing.track_id:
+            playback.restart(p)  # nothing earlier: start this one again
+        else:
+            return _np_reply(p, False)
+        body = _np_reply(p, True)
+    return await _commit(p, body)
 
 @app.post("/party/{code}/playback")
 @mutates(_store, PARTIES)

@@ -159,7 +159,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
 
       {/* Search */}
       <div className="card" ref={dropRef} style={{ position: 'relative' }}>
-        <div className="card-title">Search Songs {src === 'spotify' && <span className="tag green">Spotify</span>}</div>
+        <div className="card-title">Search Songs {src.includes('spotify') && <span className="tag green">Spotify</span>}{src.includes('youtube') && <span className="tag" style={{ background: 'rgba(255,0,0,0.1)', color: '#f44', marginLeft: 4 }}>YouTube</span>}</div>
         <input className="input" placeholder="Search any song or artist..." value={sq}
           onChange={e => onSearch(e.target.value)} onFocus={() => results.length > 0 && setShowDrop(true)} />
         {showDrop && results.length > 0 && (
@@ -168,7 +168,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
               {t.album_art ? <img src={t.album_art} alt="" /> : <div className="placeholder">&#9835;</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--tx2)' }}>{t.artist}</div>
+                <div style={{ fontSize: 12, color: 'var(--tx2)' }}>{t.artist} {t.youtube_id ? <span style={{ color: '#f44', fontWeight: 700 }}> YT</span> : t.uri ? <span style={{ color: '#1DB954', fontWeight: 700 }}> Spotify</span> : null}</div>
               </div>
               <button className="btn btn-sm btn-primary" onClick={() => addTrack(t)} disabled={added.has(t.id)} style={{ padding: '4px 12px' }}>{added.has(t.id) ? '✓' : '+ Add'}</button>
                 <button className="btn btn-sm btn-secondary" onClick={() => queueNext(t)} style={{ padding: '4px 8px', fontSize: 11 }}>Next</button>

@@ -60,6 +60,7 @@ test('which rows the host can play', () => {
   const sp = { track_id: 'sp-1', name: 'n', artist: 'a', uri: 'spotify:track:1' };
   assert.equal(playableAs(sp, true, false), 'spotify');
   assert.equal(playableAs(sp, false, false), null);
+  assert.equal(playableAs(sp, false, true), 'match');  // no Spotify login: matched to YouTube (party CDZ174)
   assert.equal(playableAs({ track_id: 'p01', name: 'n', artist: 'a' }, false, true), 'match');
   assert.equal(playableAs({ track_id: 'p01', name: 'n', artist: 'a' }, false, false), null);
 });

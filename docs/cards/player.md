@@ -20,7 +20,7 @@ flowchart TD
     B --> C{"DECISION: expected_seq == now_playing.seq?"}
     C -- no --> D["RETURN changed=false: the skip already happened"]
     C -- yes --> E["STEP: candidates = unplayed tracks after the current one, then before it"]
-    E --> F["STEP: first one this host can play (catalog tracks matched to Spotify or YouTube, at most 3 searches)"]
+    E --> F["STEP: first one this host can play; others matched to Spotify or YouTube (at most 3 searches, 503 instead of skipping a track that was not searched)"]
     F --> H{"DECISION: found one?"}
     H -- no, repeat on --> I["start the queue over"]
     H -- no --> J["RETURN ended: queue finished"]
@@ -41,6 +41,7 @@ Root causes found on `main` at 52dd34f, all reproduced in a local browser run ex
 - The search Next button called add-track and queue-next at once (line 161); add-track usually won, so queue-next saw a duplicate and the track sat at the end.
 - The no-key YouTube fallback id `yt-search-...` was treated as a video id.
 - Catalog tracks share `Track` objects with every party, so matching one to a source must copy it (caught by a test).
+- After the rebuild (production party CDZ174): with no Spotify login, Spotify search results were skipped and the queue "finished" at once. `needs_resolving` only matched tracks with no uri at all, so a track with a Spotify uri was neither playable nor matched. Now any track this host cannot play is matched (YouTube when Spotify is not connected); a track is skipped only when its search found nothing, and a search that could not run returns 503 without skipping. Previous matches too. The search badge showed only YouTube for `spotify+youtube` results because it tested `src === 'spotify'`.
 
 Checked locally after the fix (muted, YouTube and local catalog, no external accounts): play from a queue row creates one iframe; three polls left it untouched (0 `load` events); Next and Previous switch the video inside the same iframe; a 19 s video ended and advanced exactly once; an unavailable video showed "The owner does not allow this video to play outside YouTube" and skipped once; Pause on the host reached the guest card within a poll; a guest's Watch here followed the host's Next in its own single iframe. The Spotify path was checked against a mocked SDK and Web API only: token refresh 5 minutes before expiry, a 401 followed by refresh and one retry, three duplicate end events advancing once, and Pause.
 
