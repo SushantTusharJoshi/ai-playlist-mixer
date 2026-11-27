@@ -1,23 +1,29 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from app.agents import llm_agent
 from app.agents.llm_agent import LLMAgent
+from app.llm.providers import OpenAICompatProvider, build_providers
 
 
 def _agent(model):
-    cfg = SimpleNamespace(groq_api_key="k", openai_api_key="", groq_model=model)
-    with patch.object(llm_agent, "settings", cfg), patch.object(llm_agent, "OpenAI", MagicMock()):
-        return LLMAgent()
+    provider = OpenAICompatProvider("groq", "k", model, base_url="https://api.groq.com/openai/v1", client=MagicMock())
+    agent = LLMAgent([provider])
+    agent.client = provider.client  # shortcut for the assertions below
+    return agent
 
 
 def _reply(content):
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))], usage=None)
 
 
-def test_uses_configured_groq_model():
-    assert _agent("openai/gpt-oss-120b").model == "openai/gpt-oss-120b"
+def test_uses_configured_groq_model(monkeypatch):
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", MagicMock())
+    cfg = SimpleNamespace(groq_api_key="k", groq_model="openai/gpt-oss-120b", openai_api_key="", bedrock_model_id="",
+                          llm_provider="")
+    providers = build_providers(cfg)
+    assert [(p.name, p.model) for p in providers] == [("groq", "openai/gpt-oss-120b")]
 
 
 def test_gpt_oss_requests_low_reasoning_and_room_for_answer():
