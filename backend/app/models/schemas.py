@@ -16,6 +16,8 @@ class Track(BaseModel):
     popularity: float = 0.5
     uri: str | None = Field(default=None, max_length=300)
     album_art: str | None = Field(default=None, max_length=1000)
+    # 11-character YouTube video id, for YouTube results and catalog tracks resolved to YouTube.
+    youtube_id: str | None = Field(default=None, max_length=32)
 
 class UserProfile(BaseModel):
     id: str
@@ -49,6 +51,15 @@ class NowPlaying(BaseModel):
     youtube_id: str | None = None
     is_playing: bool = False
     started_at: float = 0
+    # Playback sync. seq goes up by one on every track change (play, next, prev,
+    # restart, stop), so a client can tell a new track from a repeat poll and an
+    # old reply from a new one. position_ms was the position at updated_at.
+    seq: int = 0
+    source: str = ""  # "spotify", "youtube" or "" when nothing is loaded
+    position_ms: int = 0
+    duration_ms: int = 0
+    updated_at: float = 0
+    ended: bool = False  # the queue ran out: nothing left to play
 
 class PartySession(BaseModel):
     code: str
@@ -63,6 +74,10 @@ class PartySession(BaseModel):
     now_playing: NowPlaying = Field(default_factory=NowPlaying)
     spotify_token: str = ""
     spotify_refresh: str = ""
+    spotify_expires_at: float = 0
+    # Track ids played before the current one, oldest first. Previous pops from it,
+    # and Next skips anything in it.
+    history: list[str] = Field(default_factory=list)
     # Secret returned only to the device that created the party. Host-only
     # endpoints (playback, queue generation, Spotify token) require it.
     host_key: str = ""
@@ -103,3 +118,20 @@ class NowPlayingRequest(BaseModel):
     youtube_id: str | None = Field(default=None, max_length=32)
     is_playing: bool = True
     started_at: float = 0
+
+
+class PlayRequest(BaseModel):
+    track_id: str = Field(min_length=1, max_length=120)
+
+class SkipRequest(BaseModel):
+    # The seq the client was showing. If the room already moved on (a second tab,
+    # or a track-end event racing a button press), the skip is not applied twice.
+    expected_seq: int | None = None
+    repeat: bool = False
+    shuffle: bool = False
+
+class PlaybackRequest(BaseModel):
+    seq: int
+    is_playing: bool
+    position_ms: int = Field(default=0, ge=0, le=24 * 3600 * 1000)
+    duration_ms: int = Field(default=0, ge=0, le=24 * 3600 * 1000)

@@ -40,7 +40,8 @@ def test_spotify_token_needs_host_key(client: TestClient, party_code: str):
     assert client.get(f"/party/{party_code}/spotify-token").status_code == 403
     assert client.get(f"/party/{party_code}/spotify-token", headers={"X-Host-Key": "wrong"}).status_code == 403
     ok = client.get(f"/party/{party_code}/spotify-token", headers=host_headers(party_code))
-    assert ok.json() == {"token": "ACCESS"}
+    assert ok.json()["token"] == "ACCESS"
+    assert set(ok.json()) == {"token", "expires_at"}
     assert client.post(f"/party/{party_code}/refresh-token").status_code == 403
 
 

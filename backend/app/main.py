@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from app import playback
 from app.agents.fairness_agent import FairnessAgent, reorder_after_vote
 from app.agents.llm_agent import LLMAgent, build_summary_prompt, summary_key
 from app.agents.profile_agent import ProfileAgent
@@ -26,13 +27,17 @@ from app.models.schemas import (
     NowPlaying,
     NowPlayingRequest,
     PartySession,
+    PlaybackRequest,
+    PlayRequest,
     QueueItem,
     SearchRequest,
+    SkipRequest,
     Track,
     UserProfile,
     VoteRequest,
 )
 from app.persistence import STATE_LOCK, RoomStore, mutates
+from app.services.resolve import can_resolve, resolve_track
 from app.services.search import search_all
 from app.services.spotify import build_spotify_login_url, exchange_code_for_token, refresh_spotify_token
 from app.services.spotify_search import spotify_is_configured
@@ -122,7 +127,7 @@ def _qi(q: QueueItem) -> dict:
     return {"track_id":q.track.id,"name":q.track.name,"artist":q.track.artist,"genres":q.track.genres,
             "score":q.score,"votes":q.votes,"reasons":q.reasons,"matched_users":q.matched_users,
             "energy":q.track.energy,"danceability":q.track.danceability,"popularity":q.track.popularity,
-            "uri":q.track.uri,"album_art":q.track.album_art}
+            "uri":q.track.uri,"album_art":q.track.album_art,"youtube_id":playback.youtube_id_of(q.track)}
 
 # ── Health ────────────────────────────────────────
 @app.get("/health")
@@ -157,6 +162,7 @@ def poll(code: str):
     with STATE_LOCK:
         p = _party(code)
         p.last_active_at = time.time()  # polling devices keep the party alive; not saved on its own
+        resolvable = can_resolve(bool(p.spotify_token))
         return {
             "code":p.code,
             "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
@@ -165,6 +171,10 @@ def poll(code: str):
             "cluster_info":p.cluster_info.model_dump() if p.cluster_info else None,
             "now_playing":p.now_playing.model_dump(),
             "has_spotify":bool(p.spotify_token),
+            # Catalog tracks can be matched to Spotify (host signed in) or YouTube (API key set).
+            "can_resolve":resolvable,
+            "prev_track_id":p.history[-1] if p.history else None,
+            "up_next_track_id":playback.peek_next(p, bool(p.spotify_token), resolvable),
         }
 
 MAX_DEVICES = 7
@@ -304,20 +314,153 @@ def add_track(code: str, track: Track, added_by: str = Query("", max_length=40),
     return {"added":True,"queue_length":len(p.queue)}
 
 # ── Now Playing ───────────────────────────────────
+# The server's now_playing is the one source of truth for what the room plays.
+# Every track change bumps now_playing.seq; the host page loads media when seq
+# changes and guests follow it read-only.
+
+def _np_reply(p: PartySession, changed: bool) -> dict:
+    return {"changed": changed, "now_playing": p.now_playing.model_dump(),
+            "prev_track_id": p.history[-1] if p.history else None}
+
+def _stale(p: PartySession, expected_seq: int | None) -> bool:
+    return expected_seq is not None and expected_seq != p.now_playing.seq
+
+MAX_RESOLVE_PER_SKIP = 3  # bound the upstream searches one Next press can cause
+
+async def _choose(p: PartySession, candidates: list[QueueItem], has_spotify: bool) -> tuple[QueueItem, str] | None:
+    """First candidate this host can play, matching catalog tracks to a source on the way."""
+    tries = 0
+    for item in candidates:
+        src = playback.source_of(item.track, has_spotify)
+        if src:
+            return item, src
+        if not playback.needs_resolving(item.track) or tries >= MAX_RESOLVE_PER_SKIP or not can_resolve(has_spotify):
+            continue
+        tries += 1
+        t = item.track
+        found = await resolve_track(t.id, t.name, t.artist, has_spotify)
+        if not found:
+            continue
+        with STATE_LOCK:
+            # A copy: queue items share Track objects with the catalog and other parties.
+            update = {k: found[k] for k in ("uri", "youtube_id") if found.get(k)}
+            if found.get("album_art") and not t.album_art:
+                update["album_art"] = found["album_art"]
+            item.track = t = t.model_copy(update=update)
+        src = playback.source_of(t, has_spotify)
+        if src:
+            return item, src
+    return None
+
+async def _commit(p: PartySession, body: dict) -> dict:
+    p.last_active_at = time.time()
+    await run_in_threadpool(room_store.save, PARTIES)
+    return body
+
+@app.post("/party/{code}/play")
+async def play_track(code: str, req: PlayRequest, x_host_key: str | None = Header(None)):
+    """Host picked a track in the queue."""
+    with STATE_LOCK:
+        p = _party(code)
+        _require_host(p, x_host_key)
+        item = playback.find(p.queue, req.track_id)
+        if item is None: raise HTTPException(404, "Track is not in the queue")
+        has_spotify = bool(p.spotify_token)
+    choice = await _choose(p, [item], has_spotify)
+    if choice is None:
+        raise HTTPException(409, "No playable source for this track: connect Spotify, or add it from a YouTube result")
+    with STATE_LOCK:
+        playback.set_track(p, *choice, push_current=True)
+        body = _np_reply(p, True)
+    return await _commit(p, body)
+
+# What it does: advances the room to the next playable track, once, even if a track-end event and a tap race.
+# Catch it: "The track ends and the host taps Next at the same moment. How do you not skip two tracks?"
+# Card: docs/cards/player.md
+@app.post("/party/{code}/next")
+async def play_next(code: str, req: SkipRequest, x_host_key: str | None = Header(None)):
+    with STATE_LOCK:
+        p = _party(code)
+        _require_host(p, x_host_key)
+        # DECISION: the client was looking at an older track, so this skip already happened
+        if _stale(p, req.expected_seq):
+            return _np_reply(p, False)
+        seq = p.now_playing.seq
+        has_spotify = bool(p.spotify_token)
+        # STEP: unplayed tracks after the current one, then the ones before it
+        candidates = playback.next_candidates(p, req.shuffle)
+    # STEP: first one this host can play (catalog tracks are matched to a source, at most 3 searches)
+    choice = await _choose(p, candidates, has_spotify)
+    wrapped = False
+    if choice is None and req.repeat:
+        # DECISION: repeat is on and everything was played, so start the queue over
+        with STATE_LOCK:
+            again = list(p.queue)
+        if req.shuffle:
+            playback.random.shuffle(again)
+        choice = await _choose(p, again, has_spotify)
+        wrapped = choice is not None
+    with STATE_LOCK:
+        # DECISION: someone else changed the track while we searched
+        if p.now_playing.seq != seq:
+            return _np_reply(p, False)
+        if choice is None:
+            # RETURN: queue finished; the room shows it ended
+            playback.end_queue(p)
+        else:
+            if wrapped:
+                p.history.clear()
+            playback.set_track(p, *choice)
+        body = _np_reply(p, True)
+    return await _commit(p, body)
+
+@app.post("/party/{code}/prev")
+@mutates(_store, PARTIES)
+def play_prev(code: str, req: SkipRequest, x_host_key: str | None = Header(None)):
+    p = _party(code)
+    _require_host(p, x_host_key)
+    if _stale(p, req.expected_seq):
+        return _np_reply(p, False)
+    prev = playback.pop_previous(p, bool(p.spotify_token))
+    if prev:
+        playback.set_track(p, *prev, push_current=False)  # the current track is not played yet, Next returns to it
+    elif p.now_playing.track_id:
+        playback.restart(p)  # nothing earlier: start this one again
+    else:
+        return _np_reply(p, False)
+    return _np_reply(p, True)
+
+@app.post("/party/{code}/playback")
+@mutates(_store, PARTIES)
+def set_playback(code: str, req: PlaybackRequest, x_host_key: str | None = Header(None)):
+    """Pause, resume, seek, or report the duration of the current track."""
+    p = _party(code)
+    _require_host(p, x_host_key)
+    if req.seq != p.now_playing.seq or not p.now_playing.track_id:
+        return _np_reply(p, False)  # about a track that is no longer current
+    playback.set_position(p, req.is_playing, req.position_ms, req.duration_ms)
+    return _np_reply(p, True)
+
 @app.post("/party/{code}/now-playing")
 @mutates(_store, PARTIES)
 def set_now_playing(code: str, req: NowPlayingRequest, x_host_key: str | None = Header(None)):
-    _require_host(_party(code), x_host_key)
-    data = req.model_dump()
-    data["started_at"] = time.time()
-    PARTIES[code].now_playing = NowPlaying(**data)
+    """Older direct form: the host names the track. Kept for compatibility; /play is preferred."""
+    p = _party(code)
+    _require_host(p, x_host_key)
+    item = playback.find(p.queue, req.track_id) or QueueItem(
+        track=Track(id=req.track_id, name=req.name, artist=req.artist, uri=req.uri,
+                    album_art=req.album_art, youtube_id=req.youtube_id), score=0)
+    src = playback.source_of(item.track, True) or ""
+    playback.set_track(p, item, src)
+    p.now_playing.is_playing = req.is_playing
     return {"ok":True}
 
 @app.post("/party/{code}/stop-playing")
 @mutates(_store, PARTIES)
 def stop_playing(code: str, x_host_key: str | None = Header(None)):
-    _require_host(_party(code), x_host_key)
-    PARTIES[code].now_playing = NowPlaying()
+    p = _party(code)
+    _require_host(p, x_host_key)
+    p.now_playing = NowPlaying(seq=p.now_playing.seq + 1, updated_at=time.time())
     return {"ok":True}
 
 # ── Search ────────────────────────────────────────
@@ -382,27 +525,39 @@ async def spotify_callback(code: str | None = None, state: str = "", error: str 
     if party_code in PARTIES:
         PARTIES[party_code].spotify_token = token_data.get("access_token", "")
         PARTIES[party_code].spotify_refresh = token_data.get("refresh_token", "")
+        PARTIES[party_code].spotify_expires_at = time.time() + int(token_data.get("expires_in", 3600))
     # RETURN: back to the host page
     redirect_url = f"{settings.frontend_url}/host/{party_code}?spotify=connected"
     return RedirectResponse(redirect_url)
 
 @app.get("/party/{code}/spotify-token")
 def get_spotify_token(code: str, x_host_key: str | None = Header(None)):
-    _require_host(_party(code), x_host_key)
-    t = PARTIES[code].spotify_token
-    if not t: return {"token":None}
-    return {"token":t}
+    p = _party(code)
+    _require_host(p, x_host_key)
+    if not p.spotify_token: return {"token":None}
+    return {"token":p.spotify_token, "expires_at":p.spotify_expires_at}
 
+# What it does: swaps the host's refresh token for a new access token before the old one expires.
+# Catch it: "Spotify access tokens last an hour. What keeps a three-hour party playing?"
+# Card: docs/cards/player.md
 @app.post("/party/{code}/refresh-token")
 async def do_refresh_token(code: str, x_host_key: str | None = Header(None)):
-    _require_host(_party(code), x_host_key)
-    rt = PARTIES[code].spotify_refresh
+    p = _party(code)
+    _require_host(p, x_host_key)
+    rt = p.spotify_refresh
     if not rt: raise HTTPException(400, "No refresh token")
-    data = await refresh_spotify_token(rt)
-    PARTIES[code].spotify_token = data.get("access_token", "")
-    if data.get("refresh_token"):
-        PARTIES[code].spotify_refresh = data["refresh_token"]
-    return {"token":PARTIES[code].spotify_token}
+    try:
+        data = await refresh_spotify_token(rt)
+    except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", "")
+        print(f"Spotify refresh failed: {type(e).__name__} {status}")
+        raise HTTPException(502, "Spotify refresh failed, connect Spotify again") from None
+    with STATE_LOCK:
+        p.spotify_token = data.get("access_token", "")
+        p.spotify_expires_at = time.time() + int(data.get("expires_in", 3600))
+        if data.get("refresh_token"):
+            p.spotify_refresh = data["refresh_token"]
+        return {"token":p.spotify_token, "expires_at":p.spotify_expires_at}
 
 # ── Leaderboard ───────────────────────────────────
 @app.get("/party/{code}/leaderboard")
