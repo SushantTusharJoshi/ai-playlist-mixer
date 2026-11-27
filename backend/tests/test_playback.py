@@ -74,6 +74,8 @@ def test_next_skips_tracks_that_cannot_play_and_records_history(client, room):
     assert r.json()["now_playing"]["track_id"] == f"yt-{YT[1]}"
     assert PARTIES[room].history[-1] == f"yt-{YT[0]}"
     assert r.json()["prev_track_id"] == f"yt-{YT[0]}"
+    poll = client.get(f"/party/{room}/poll").json()
+    assert poll["up_next_track_id"] == f"yt-{YT[2]}" and poll["prev_track_id"] == f"yt-{YT[0]}"
 
 
 def test_track_end_and_tap_race_skip_only_once(client, room):

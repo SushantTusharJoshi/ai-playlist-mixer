@@ -162,6 +162,7 @@ def poll(code: str):
     with STATE_LOCK:
         p = _party(code)
         p.last_active_at = time.time()  # polling devices keep the party alive; not saved on its own
+        resolvable = can_resolve(bool(p.spotify_token))
         return {
             "code":p.code,
             "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
@@ -171,8 +172,9 @@ def poll(code: str):
             "now_playing":p.now_playing.model_dump(),
             "has_spotify":bool(p.spotify_token),
             # Catalog tracks can be matched to Spotify (host signed in) or YouTube (API key set).
-            "can_resolve":can_resolve(bool(p.spotify_token)),
+            "can_resolve":resolvable,
             "prev_track_id":p.history[-1] if p.history else None,
+            "up_next_track_id":playback.peek_next(p, bool(p.spotify_token), resolvable),
         }
 
 MAX_DEVICES = 7

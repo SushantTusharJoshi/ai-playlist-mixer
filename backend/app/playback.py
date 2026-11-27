@@ -72,6 +72,14 @@ def next_candidates(p: PartySession, shuffle: bool = False, rng: random.Random |
     return out
 
 
+def peek_next(p: PartySession, has_spotify: bool, resolvable: bool) -> str | None:
+    """The track Next would most likely pick (shown as "Up next"); no searches."""
+    for item in next_candidates(p):
+        if source_of(item.track, has_spotify) or (resolvable and needs_resolving(item.track)):
+            return item.track.id
+    return None
+
+
 def set_track(p: PartySession, item: QueueItem, source: str, push_current: bool = True,
               now: float | None = None) -> NowPlaying:
     """Make item the current track, starting at 0, and bump seq."""
