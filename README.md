@@ -8,13 +8,11 @@ A real-time collaborative music platform where multiple users across devices vot
 
 ## What It Does Differently
 
-Most music apps are single-user. This one is built for a room. One host creates a party, up to 7 devices join as guests, and the queue is democratically shaped in real time — every vote, skip, and addition is instantly reflected across all connected clients. The AI reads the room and generates a live "party taste summary" based on what the group has actually been playing.
+Most music apps are single-user. This one is built for a room. One host creates a party, up to 7 devices join as guests, and the queue is democratically shaped in real time — every vote, skip and addition reaches every device on the next 3-second poll. The AI reads the room and writes a "party taste summary" from the guests' tastes and the current queue.
 
 ---
 
 ## Spotify and YouTube. Finally Under One Roof.
-
-This is the part nobody has built cleanly.
 
 Spotify has the catalog and the Premium playback SDK. YouTube has everything Spotify doesn't — every obscure track, every live version, every song that never got a streaming license.
 
@@ -22,9 +20,11 @@ Most apps pick one. This one unifies both into a single queue.
 
 A host searches Spotify. A guest adds a YouTube track. They sit side by side in the same playlist, play in sequence, and sync across all 7 devices without either platform knowing about the other. The backend abstracts the source — every track is just a track, regardless of where it came from.
 
-For Premium Spotify users, the Web Playback SDK handles full in-browser audio. For everyone else — guests, free-tier users, non-Spotify users — YouTube fills the gap silently. No friction. No "this track isn't available." Just music.
+The host plays Spotify tracks in the browser through the Web Playback SDK, which needs Spotify Premium. Guests never sign in to Spotify: search runs on an app-level token, and YouTube and a local catalog cover tracks too. How playback behaves for a host on a free Spotify account has not been tested yet.
 
-That's the actual unlock: **the room works for everyone in it, regardless of what subscriptions they have.**
+### Platform limits
+
+Since March 9, 2026, Spotify apps in development mode need Premium and allow up to 5 authorized users ([Spotify](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security)). Only the host signs in, so the cap applies to hosts, not guests.
 
 ---
 
@@ -40,7 +40,7 @@ That's the actual unlock: **the room works for everyone in it, regardless of wha
 - Queue-next lets any guest bump a track to play immediately after the current one
 
 ### Groq AI Party Summary
-- Uses a Groq-hosted model (default `openai/gpt-oss-120b`, set with `GROQ_MODEL`) to analyze the session's played tracks and generate a natural-language "party taste" description
+- Uses a Groq-hosted model (default `openai/gpt-oss-120b`, set with `GROQ_MODEL`) to describe the room's taste from the guests' genre and energy preferences and the top of the queue
 - Falls back to a static summary if the Groq key is not set
 
 ### Playback Controls
@@ -63,23 +63,9 @@ That's the actual unlock: **the room works for everyone in it, regardless of wha
 
 ---
 
-## SEO & Traffic Architecture
+## Privacy
 
-Every shared party link is a dynamic, indexable route (`/party/[code]`). When a host shares that link, up to 6 other guests join — each one a distinct traffic event with behavioral data attached: what they played, how long they stayed, what they voted on.
-
-The host's app doesn't just get listeners. It gets a dataset. Each guest session maps:
-
-```
-inbound traffic source → in-app behavior → taste signal → model improvement
-```
-
-The host controls the room. The guests improve the model.
-
-Specific implementation:
-- **Open Graph tags** on party join pages so shared links render rich previews on social platforms — each link is a user-generated traffic entry point
-- **Dynamic routes** (`/party/[code]`) pre-rendered with fallback so guest join pages are indexable
-- **Session ID behavior mapping** — tracks played, votes cast, and session duration logged per device
-- **Planned:** UTM parameter capture on join URLs to attribute traffic source per guest device — bridging SEO-driven inbound traffic to in-app behavioral data
+Party and host pages are private links: they send `noindex` in both a meta tag and an `X-Robots-Tag` header, so search engines do not list them.
 
 ---
 
@@ -91,10 +77,9 @@ These are real architectural limitations, not polish issues:
 |---|---|---|
 | YouTube iframe reloads every 3s | Guest poll overwrites `ytVideoId` state even when track hasn't changed | Add equality check before updating state; only set if ID differs |
 | YouTube audio stops when player is closed | YouTube embed requires visible iframe to maintain audio context | Migrate to YouTube IFrame API with programmatic `playVideo()` instead of embed |
-| Groq summary fires on every poll | No debounce on AI summary generation | Gate behind explicit "Summarize" button or fire only on track change events |
+| Summary refreshes on a timer | A 30-second cooldown limits calls, but the summary is not keyed to what changed in the room | Cache the summary on the full room state (guests, tastes, queue order, now playing) |
 | No persistent party history | Sessions exist only in memory; server restart wipes everything | Add PostgreSQL session persistence with TTL |
 | Single-host failure | If host disconnects, party state becomes stale for guests | Promote guest to host via server-side host election on disconnect |
-| Device limit is soft | The "7 devices" cap is not enforced server-side | Add server-side guest slot tracking with rejection on overflow |
 
 ---
 
