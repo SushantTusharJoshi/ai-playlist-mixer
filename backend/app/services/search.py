@@ -66,11 +66,15 @@ def local_search(q: str, limit: int) -> list[dict]:
     return local[:limit]
 
 
+# What it does: one search box over Spotify, YouTube and the local catalog, with a cache and a YouTube budget.
+# Catch it: "Every keystroke can hit two paid APIs. How do you bound the cost?"
+# Card: docs/cards/search-fanout.md
 async def search_all(query: str, limit: int) -> dict:
     q = query.lower().strip()
     if not q:
         return {"results": [], "source": "none"}
 
+    # DECISION: same query in the last 10 minutes is answered from the cache
     key = (q, limit)
     cached = _cache_get(key)
     if cached is not None:
@@ -80,7 +84,7 @@ async def search_all(query: str, limit: int) -> dict:
     source = "local"
     degraded = False  # an upstream failed or was skipped: do not cache this answer
 
-    # Spotify (leave room for YouTube results)
+    # STEP: Spotify with the app token (leave room for YouTube results)
     if spotify_is_configured():
         try:
             sp_limit = limit - 3 if limit > 5 else max(limit - 2, 3)
@@ -90,7 +94,7 @@ async def search_all(query: str, limit: int) -> dict:
             print(f"Spotify error: {e}")
             degraded = True
 
-    # YouTube, within the app-wide budget
+    # STEP: YouTube, only while the app-wide per-minute budget lasts
     if youtube_is_configured():
         if _youtube_budget_ok():
             try:
@@ -102,11 +106,12 @@ async def search_all(query: str, limit: int) -> dict:
         else:
             degraded = True
 
-    # Local fallback
+    # DECISION: nothing upstream, so fall back to the local catalog
     if not all_results:
         result = {"results": local_search(q, limit), "source": "local"}
     else:
         result = {"results": all_results[:limit], "source": source}
+    # RETURN: cache only complete answers, so an outage is not remembered for 10 minutes
     if not degraded:
         _cache_put(key, result)
     return result

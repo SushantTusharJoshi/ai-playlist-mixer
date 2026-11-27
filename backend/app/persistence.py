@@ -65,13 +65,20 @@ class RoomStore:
             rooms = {code: p.model_dump(mode="json", exclude=NOT_SAVED) for code, p in parties.items()}
         return json.dumps({"version": FORMAT_VERSION, "saved_at": time.time(), "parties": rooms})
 
+    # What it does: writes every live party to one JSON file so a restart does not lose the room.
+    # Catch it: "What happens if the server dies halfway through writing the file?"
+    # Card: docs/cards/persistence-save.md
     def save(self, parties: dict[str, PartySession]) -> bool:
         if not self.enabled:
             return False
+        # DECISION: one writer at a time, so an older snapshot never lands after a newer one
         with self._write_lock:
+            # STEP: drop parties idle past the TTL
             self.expire_idle(parties)
+            # STEP: snapshot under the state lock, tokens left out
             text = self.snapshot(parties)
             try:
+                # STEP: write a temp file in the same directory and fsync it
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{self.path.name}.", suffix=".tmp")
                 try:
@@ -79,37 +86,48 @@ class RoomStore:
                         f.write(text)
                         f.flush()
                         os.fsync(f.fileno())
+                    # STEP: atomic swap: readers see the old file or the new one, never half
                     os.replace(tmp, self.path)
                 except BaseException:
                     if os.path.exists(tmp):
                         os.unlink(tmp)
                     raise
             except OSError as e:
+                # RETURN: a failed write keeps the app running from memory
                 print(f"Room state save failed: {type(e).__name__}: {e}")
                 return False
             self.saves += 1
             return True
 
+    # What it does: reads the saved file on startup and rebuilds the live parties.
+    # Catch it: "How do you restore state after a restart, and what if the file is bad?"
+    # Card: docs/cards/persistence-load.md
     def load(self, now: float | None = None) -> dict[str, PartySession]:
+        # DECISION: no file yet means a fresh start
         if not self.enabled or not self.path.exists():
             return {}
         now = time.time() if now is None else now
+        # STEP: parse the whole file
         try:
             raw = json.loads(self.path.read_text())
         except (OSError, ValueError) as e:
+            # DECISION: an unreadable file is set aside as .corrupt, not deleted, and the app starts empty
             print(f"Room state load failed: {type(e).__name__}: {e}")
             with contextlib.suppress(OSError):
                 os.replace(self.path, self.path.with_suffix(self.path.suffix + ".corrupt"))
             return {}
         parties: dict[str, PartySession] = {}
+        # LOOP: validate each party on its own, so one bad record does not lose the rest
         for code, data in (raw.get("parties") or {}).items():
             try:
                 p = PartySession.model_validate(data)
             except ValidationError:
                 print(f"Room state: skipped invalid party {code!r}")
                 continue
+            # STEP: skip parties that went idle while the app was down
             if not self.is_expired(p, now):
                 parties[code] = p
+        # RETURN: live parties, ready to put in PARTIES
         return parties
 
 

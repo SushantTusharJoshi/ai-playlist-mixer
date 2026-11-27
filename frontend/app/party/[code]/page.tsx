@@ -36,20 +36,28 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
     }
   }, [ytVideoId]);
 
+  // What it does: every 3 seconds pulls the room and changes only what changed, so playback does not restart.
+  // Catch it: "Why polling instead of WebSockets, and how do you stop a poll from restarting the video?"
+  // Card: docs/cards/polling-sync.md
   const poll = useCallback(async () => {
     try {
+      // STEP: one GET returns members, queue, summary and now playing
       const d = await api(`/party/${code}/poll`);
       setMembers(d.members || []);
+      // DECISION: an empty queue in a reply never wipes the one on screen
       if (d.queue?.length) setQueue(d.queue);
       setSummary(d.ai_summary || '');
       setNp((prev: any) => {
         const incoming = d.now_playing || { is_playing: false };
+        // DECISION: same track and play state keeps the old object, so the player is left alone
         if (prev.track_id === incoming.track_id && prev.is_playing === incoming.is_playing) return prev;
+        // RETURN: a real change replaces now playing
         return incoming;
       });
     } catch {}
   }, [code]);
 
+  // LOOP: poll now, then every 3000 ms until the page closes
   useEffect(() => { api('/genres').then(d => setGenres(d.genres)).catch(() => {}); poll(); const i = setInterval(poll, 3000); return () => clearInterval(i); }, [poll]);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDrop(false); };
