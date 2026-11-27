@@ -47,7 +47,9 @@ async def youtube_search(query: str, limit: int = 5) -> list[dict]:
             })
         return results
     except Exception as e:
-        print(f"YouTube API error: {e}")
+        # httpx errors include the request URL, which carries the API key: log the type and status only.
+        status = getattr(getattr(e, "response", None), "status_code", "")
+        print(f"YouTube API error: {type(e).__name__} {status}")
         return [_fallback_result(query)]
 
 

@@ -1,6 +1,6 @@
 'use client';
 import { use, useEffect, useState, useCallback, useRef } from 'react';
-import { api, apiBase } from '@/lib/api';
+import { api, hostHeaders, loadHostKey } from '@/lib/api';
 
 declare global { interface Window { onSpotifyWebPlaybackSDKReady: () => void; Spotify: any; } }
 
@@ -35,6 +35,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
   const [ytVideoId, setYtVideoId] = useState('');
   const [ytSrc, setYtSrc] = useState('');
   const [ytMinimized, setYtMinimized] = useState(false);
+  const [isHost, setIsHost] = useState(true);
   const posTimer = useRef<any>(null);
   const playingIdx = useRef(-1);
 
@@ -63,13 +64,14 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
   }, [code]);
 
   useEffect(() => { poll(); const i = setInterval(poll, 3000); return () => clearInterval(i); }, [poll]);
+  useEffect(() => { setIsHost(!!loadHostKey(code)); }, [code]);
   useEffect(() => { const h = (e: MouseEvent) => { if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDrop(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, []);
   useEffect(() => { if (!player) return; posTimer.current = setInterval(async () => { try { const s = await player.getCurrentState(); if (s && !seeking) { setPosition(s.position); setDuration(s.duration); } } catch {} }, 1000); return () => clearInterval(posTimer.current); }, [player, seeking]);
   useEffect(() => { if (np.track_id && queue.length) { const i = queue.findIndex(q => q.track_id === np.track_id); if (i >= 0) playingIdx.current = i; } }, [queue, np.track_id]);
 
   useEffect(() => {
     if (!hasSpotify || sdkReady) return;
-    api(`/party/${code}/spotify-token`).then(d => {
+    api(`/party/${code}/spotify-token`, { headers: hostHeaders(code) }).then(d => {
       if (!d.token) return; setSpToken(d.token);
       if (document.getElementById('spotify-sdk')) return;
       const s = document.createElement('script'); s.id = 'spotify-sdk'; s.src = 'https://sdk.scdn.co/spotify-player.js'; document.head.appendChild(s);
@@ -91,7 +93,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
     if (item.track_id?.startsWith('yt-')) {
       const vid = item.track_id.replace('yt-', '');
       // Don't auto-open embed - user clicks Watch to see it
-      api(`/party/${code}/now-playing`, { method: 'POST', body: JSON.stringify({ track_id: item.track_id, name: item.name, artist: item.artist, uri: null, album_art: item.album_art, youtube_id: vid, is_playing: true }) }).catch(() => {});
+      api(`/party/${code}/now-playing`, { method: 'POST', headers: hostHeaders(code), body: JSON.stringify({ track_id: item.track_id, name: item.name, artist: item.artist, uri: null, album_art: item.album_art, youtube_id: vid, is_playing: true }) }).catch(() => {});
       setNp({ track_id: item.track_id, name: item.name, artist: item.artist, album_art: item.album_art, youtube_id: vid, is_playing: true });
       return;
     }
@@ -101,7 +103,7 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
     try {
       await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${spToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ uris: [item.uri] }) });
       setYtVideoId('');
-      await api(`/party/${code}/now-playing`, { method: 'POST', body: JSON.stringify({ track_id: item.track_id, name: item.name, artist: item.artist, uri: item.uri, album_art: item.album_art, youtube_id: null, is_playing: true }) });
+      await api(`/party/${code}/now-playing`, { method: 'POST', headers: hostHeaders(code), body: JSON.stringify({ track_id: item.track_id, name: item.name, artist: item.artist, uri: item.uri, album_art: item.album_art, youtube_id: null, is_playing: true }) });
       setNp({ track_id: item.track_id, name: item.name, artist: item.artist, album_art: item.album_art, uri: item.uri, is_playing: true });
       setPosition(0);
     } catch (e) { console.error('Play failed:', e); }
@@ -117,10 +119,11 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
 
   function onSearch(val: string) { setSq(val); if (searchTimer.current) clearTimeout(searchTimer.current); if (!val.trim()) { setResults([]); setShowDrop(false); return; } searchTimer.current = setTimeout(async () => { try { const d = await api('/search', { method: 'POST', body: JSON.stringify({ query: val.trim(), limit: 10 }) }); setResults(d.results || []); setSrc(d.source || ''); setShowDrop(true); } catch {} }, 300); }
 
-  async function addTrack(t: any) { try { const d = await api(`/party/${code}/add-track?added_by=Host`, { method: 'POST', body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) { setAdded(p => new Set(p).add(t.id)); poll(); } } catch {} }
-  async function queueNext(t: any) { try { const d = await api(`/party/${code}/queue-next?added_by=Host`, { method: 'POST', body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) poll(); } catch {} }
-  async function genQueue() { setGenerating(true); try { const d = await api(`/party/${code}/generate-queue`, { method: 'POST' }); if (d.queue) setQueue(d.queue); if (d.members) setMembers(d.members); if (d.ai_summary) setSummary(d.ai_summary); setCooldown(30); const t = setInterval(() => setCooldown(c => { if (c <= 1) { clearInterval(t); return 0; } return c - 1; }), 1000); } catch { alert('Add guests first'); } setGenerating(false); }
-  async function vote(tid: string, v: number) { try { const d = await api(`/party/${code}/vote`, { method: 'POST', body: JSON.stringify({ track_id: tid, value: v }) }); if (d.queue) setQueue(d.queue); } catch {} }
+  async function addTrack(t: any) { try { const d = await api(`/party/${code}/add-track`, { method: 'POST', headers: hostHeaders(code), body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) { setAdded(p => new Set(p).add(t.id)); poll(); } } catch {} }
+  async function queueNext(t: any) { try { const d = await api(`/party/${code}/queue-next`, { method: 'POST', headers: hostHeaders(code), body: JSON.stringify({ id: t.id, name: t.name, artist: t.artist, genres: t.genres || [], energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5, uri: t.uri || null, album_art: t.album_art || null }) }); if (d.added) poll(); } catch {} }
+  async function connectSpotify() { try { const d = await api(`/party/${code}/spotify/login-url`, { method: 'POST', headers: hostHeaders(code) }); if (d.url) window.location.href = d.url; } catch { alert('Only the device that created this party can connect Spotify'); } }
+  async function genQueue() { setGenerating(true); try { const d = await api(`/party/${code}/generate-queue`, { method: 'POST', headers: hostHeaders(code) }); if (d.queue) setQueue(d.queue); if (d.members) setMembers(d.members); if (d.ai_summary) setSummary(d.ai_summary); setCooldown(30); const t = setInterval(() => setCooldown(c => { if (c <= 1) { clearInterval(t); return 0; } return c - 1; }), 1000); } catch { alert('Add guests first'); } setGenerating(false); }
+  async function vote(tid: string, v: number) { try { const d = await api(`/party/${code}/vote`, { method: 'POST', headers: hostHeaders(code), body: JSON.stringify({ track_id: tid, value: v }) }); if (d.queue) setQueue(d.queue); } catch {} }
 
   const displayQ = sortBy === 'votes' ? [...queue].sort((a, b) => b.votes - a.votes) : queue;
   const totalVotes = queue.reduce((s, q) => s + Math.abs(q.votes), 0);
@@ -132,7 +135,8 @@ export default function HostPage({ params }: { params: Promise<{ code: string }>
       <div className="page-header">
         <h1>Host</h1><span className="code">{code}</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {!hasSpotify && <a href={`${apiBase()}/auth/spotify/login?party_code=${code}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#1DB954', color: '#fff', borderRadius: 20, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Connect Spotify</a>}
+          {!isHost && <span style={{ fontSize: 12, color: 'var(--tx3)' }}>Host controls work only on the device that created this party</span>}
+          {!hasSpotify && isHost && <button onClick={connectSpotify} style={{ border: 'none', cursor: 'pointer',  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#1DB954', color: '#fff', borderRadius: 20, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Connect Spotify</button>}
           {hasSpotify && <span style={{ padding: '6px 12px', background: 'var(--gnd)', color: 'var(--gn)', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>Spotify {sdkReady ? 'Ready' : 'Connected'}</span>}
           <button className="btn btn-sm btn-secondary" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/party/${code}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? 'Copied!' : 'Share Link'}</button>
           <button className="btn btn-sm btn-primary" onClick={genQueue} disabled={generating || members.length === 0 || cooldown > 0}>{generating ? 'Generating...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Generate Queue'}</button>

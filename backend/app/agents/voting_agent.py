@@ -1,31 +1,46 @@
-from collections import defaultdict
+from app.models.schemas import PartySession
+
+VOTE_CAP = 5          # votes beyond +/-5 stop moving a track
+VOTE_WEIGHT = 0.04    # score change per counted vote
+
+
+def vote_boost(votes: int) -> float:
+    """Score boost for a net vote count, clamped to +/- VOTE_CAP votes."""
+    return min(max(votes, -VOTE_CAP), VOTE_CAP) * VOTE_WEIGHT
 
 
 class VotingAgent:
     """
-    Handles session feedback. Later this can become an online learning layer:
+    Handles session feedback. Votes live on the PartySession so they are
+    saved and restored with the rest of the room.
+
+    Each voter (a guest key or the host) holds one choice per track: +1 or -1.
+    Voting the same way twice is rejected; switching from +1 to -1 moves the
+    net count by 2. So one voter can move a track by at most one vote.
+
+    Later this can become an online learning layer:
     - epsilon-greedy bandit
     - Thompson sampling
     - logistic model trained from votes/skips
     """
 
-    def __init__(self) -> None:
-        self.votes_by_party: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        # Track which users voted on which tracks: {party: {(user_id, track_id)}}
-        self.user_votes: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    def has_voted(self, party: PartySession, voter: str, track_id: str, value: int | None = None) -> bool:
+        current = party.vote_choices.get(f"{voter}|{track_id}")
+        if value is None:
+            return current is not None
+        return current == value
 
-    def has_voted(self, party_code: str, user_id: str, track_id: str) -> bool:
-        return (user_id, track_id) in self.user_votes[party_code]
-
-    def vote(self, party_code: str, track_id: str, value: int, voted_by: str = "") -> dict[str, int]:
+    def vote(self, party: PartySession, track_id: str, value: int, voter: str) -> int:
         if value not in (-1, 1):
             raise ValueError("vote value must be -1 or 1")
-        if voted_by:
-            if self.has_voted(party_code, voted_by, track_id):
-                raise ValueError("duplicate_vote")
-            self.user_votes[party_code].add((voted_by, track_id))
-        self.votes_by_party[party_code][track_id] += value
-        return dict(self.votes_by_party[party_code])
+        key = f"{voter}|{track_id}"
+        previous = party.vote_choices.get(key, 0)
+        if previous == value:
+            raise ValueError("duplicate_vote")
+        party.vote_choices[key] = value
+        delta = value - previous
+        party.votes[track_id] = party.votes.get(track_id, 0) + delta
+        return delta
 
-    def get_votes(self, party_code: str) -> dict[str, int]:
-        return dict(self.votes_by_party[party_code])
+    def get_votes(self, party: PartySession) -> dict[str, int]:
+        return dict(party.votes)

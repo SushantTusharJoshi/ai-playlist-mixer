@@ -11,6 +11,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   const [np, setNp] = useState<any>({ is_playing: false });
   const [npExpanded, setNpExpanded] = useState(false);
   const [userId, setUserId] = useState('');
+  const [userKey, setUserKey] = useState('');
   const [userName, setUserName] = useState('');
   const [selGenre, setSelGenre] = useState('');
   const [joining, setJoining] = useState(false);
@@ -60,7 +61,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
     setJoining(true);
     try {
       const d = await api(`/party/${code}/join`, { method: 'POST', body: JSON.stringify({ display_name: userName.trim(), genre: selGenre }) });
-      setUserId(d.user_id); poll();
+      setUserId(d.user_id); setUserKey(d.user_key || ''); poll();
     } catch (e: any) { alert(e.message); }
     setJoining(false);
   }
@@ -68,7 +69,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   async function vote(tid: string, v: number) {
     if (voted[tid] === v) return;
     try {
-      const d = await api(`/party/${code}/vote`, { method: 'POST', body: JSON.stringify({ track_id: tid, value: v }) });
+      const d = await api(`/party/${code}/vote`, { method: 'POST', headers: { 'X-User-Key': userKey }, body: JSON.stringify({ track_id: tid, value: v }) });
       setVoted(p => ({ ...p, [tid]: v }));
       if (d.queue) setQueue(d.queue);
     } catch {}
@@ -89,7 +90,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   async function queueNext(t: any) {
     const name = userName.trim() || 'Guest';
     try {
-      const d = await api(`/party/${code}/queue-next?added_by=${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify({
+      const d = await api(`/party/${code}/queue-next?added_by=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-User-Key': userKey }, body: JSON.stringify({
         id: t.id, name: t.name, artist: t.artist, genres: t.genres || [],
         energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5,
         uri: t.uri || null, album_art: t.album_art || null
@@ -101,7 +102,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   async function addTrack(t: any) {
     const name = userName.trim() || 'Guest';
     try {
-      const d = await api(`/party/${code}/add-track?added_by=${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify({
+      const d = await api(`/party/${code}/add-track?added_by=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-User-Key': userKey }, body: JSON.stringify({
         id: t.id, name: t.name, artist: t.artist, genres: t.genres || [],
         energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5,
         uri: t.uri || null, album_art: t.album_art || null
@@ -123,7 +124,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
           <h1 style={{ fontSize: 26, marginBottom: 4 }}>Join Party</h1>
           <span className="code" style={{ fontSize: 16, marginBottom: 28 }}>{code}</span>
           <p style={{ color: 'var(--tx2)', marginBottom: 8, fontSize: 13 }}>{members.length} already here</p>
-          <input className="input" placeholder="Your name" value={userName}
+          <input className="input" placeholder="Your name" value={userName} maxLength={40}
             onChange={e => setUserName(e.target.value)}
             style={{ maxWidth: 300, marginBottom: 18, textAlign: 'center', fontSize: 15 }}
             onKeyDown={e => e.key === 'Enter' && joinParty()} />

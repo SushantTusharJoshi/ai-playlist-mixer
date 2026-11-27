@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '../lib/api';
+import { api, saveHostKey } from '../lib/api';
 
 export default function Home() {
   const router = useRouter();
@@ -12,6 +12,7 @@ export default function Home() {
     setCreating(true);
     try {
       const d = await api('/party/create', { method: 'POST', body: JSON.stringify({ host_id: 'host', theme: 'party' }) });
+      saveHostKey(d.code, d.host_key);
       router.push(`/host/${d.code}`);
     } catch { alert('Failed'); }
     setCreating(false);

@@ -24,6 +24,11 @@ def party_code(client: TestClient) -> str:
     return resp.json()["code"]
 
 
+def host_headers(code: str) -> dict[str, str]:
+    """Headers the host page sends: the host key returned by /party/create."""
+    return {"X-Host-Key": PARTIES[code].host_key}
+
+
 @pytest.fixture()
 def party_with_member(client: TestClient, party_code: str) -> tuple[str, str]:
     """Create a party with one member. Returns (party_code, user_id)."""
@@ -34,3 +39,11 @@ def party_with_member(client: TestClient, party_code: str) -> tuple[str, str]:
     assert resp.status_code == 200
     user_id = resp.json()["user_id"]
     return party_code, user_id
+
+
+@pytest.fixture(autouse=True)
+def _reset_search_state():
+    from app.services.search import reset_search_state
+    reset_search_state()
+    yield
+    reset_search_state()
