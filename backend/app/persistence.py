@@ -34,7 +34,7 @@ from app.models.schemas import PartySession
 # holding it (save takes the write lock first, then this one).
 STATE_LOCK = threading.RLock()
 
-NOT_SAVED = {"spotify_token", "spotify_refresh"}
+NOT_SAVED = {"spotify_token", "spotify_refresh", "spotify_expires_at"}
 FORMAT_VERSION = 1
 
 
