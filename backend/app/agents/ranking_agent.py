@@ -22,18 +22,25 @@ class RankingAgent:
                 by_id[track.id] = track
         return list(by_id.values())
 
+    # What it does: scores every guest's candidate track for the whole room and sorts best first.
+    # Catch it: "How do you rank songs for a group instead of one listener?"
+    # Card: docs/cards/ranking-score.md
     def rank(self, users: list[UserProfile], votes: dict[str, int] | None = None) -> list[QueueItem]:
         votes = votes or defaultdict(int)
+        # STEP: pool every guest's candidate tracks, de-duplicated by id
         candidates = self.build_candidate_pool(users)
         queue: list[QueueItem] = []
 
+        # LOOP: score each candidate against every guest
         for track in candidates:
+            # STEP: affinity per guest; a guest is matched at 0.55 or more
             affinities = {u.id: user_track_affinity(track, u) for u in users}
             matched_users = [uid for uid, score in affinities.items() if score >= 0.55]
             avg_affinity = sum(affinities.values()) / max(len(affinities), 1)
             coverage = len(matched_users) / max(len(users), 1)
             vote_boost = clamped_vote_boost(votes.get(track.id, 0))
 
+            # STEP: blend average affinity, coverage, popularity and the clamped vote boost
             score = 0.55 * avg_affinity + 0.30 * coverage + 0.10 * track.popularity + vote_boost
 
             reasons = []
@@ -54,4 +61,5 @@ class RankingAgent:
                 )
             )
 
+        # RETURN: best score first (the genre rerank runs after this)
         return sorted(queue, key=lambda x: x.score, reverse=True)

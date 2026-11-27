@@ -30,16 +30,24 @@ class VotingAgent:
             return current is not None
         return current == value
 
+    # What it does: records one voter's up/down choice on a track and returns how far the net count moved.
+    # Catch it: "How do you stop one guest from voting a track to the top?"
+    # Card: docs/cards/vote.md
     def vote(self, party: PartySession, track_id: str, value: int, voter: str) -> int:
+        # DECISION: only +1 or -1 is a vote
         if value not in (-1, 1):
             raise ValueError("vote value must be -1 or 1")
+        # STEP: look up this voter's current choice on this track
         key = f"{voter}|{track_id}"
         previous = party.vote_choices.get(key, 0)
+        # DECISION: the same choice again is a duplicate, not a second vote
         if previous == value:
             raise ValueError("duplicate_vote")
+        # STEP: replace the choice, so the net count moves by the difference
         party.vote_choices[key] = value
         delta = value - previous
         party.votes[track_id] = party.votes.get(track_id, 0) + delta
+        # RETURN: 1 for a new vote, 2 for a switch
         return delta
 
     def get_votes(self, party: PartySession) -> dict[str, int]:

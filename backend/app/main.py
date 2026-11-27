@@ -170,16 +170,23 @@ def poll(code: str):
 MAX_DEVICES = 7
 
 # ── Join ──────────────────────────────────────────
+# What it does: adds a guest to a party by its 6-character code and hands back a secret user key.
+# Catch it: "The party code is in a public link. What can someone do with only the code?"
+# Card: docs/cards/party-join.md
 @app.post("/party/{code}/join")
 @mutates(_store, PARTIES)
 def join(code: str, req: JoinRequest):
+    # STEP: find the party; an unknown code is a 404
     p = _party(code)
+    # DECISION: genre must be one we have defaults for, and the name must not be blank
     genre = req.genre.lower().strip()
     if genre not in GENRE_DEFAULTS: raise HTTPException(400, f"Pick from: {AVAILABLE_GENRES}")
     display_name = " ".join(req.display_name.split())
     if not display_name: raise HTTPException(400, "Enter a name")
+    # DECISION: at most 7 devices (checked under STATE_LOCK, so parallel joins cannot overshoot)
     if len(p.members) >= MAX_DEVICES:
         raise HTTPException(400, f"Party is full ({MAX_DEVICES} devices max)")
+    # STEP: build the guest's taste profile from the genre defaults
     d = GENRE_DEFAULTS[genre]
     uid = f"user-{uuid.uuid4().hex[:8]}"
     user_key = secrets.token_urlsafe(16)
@@ -189,6 +196,7 @@ def join(code: str, req: JoinRequest):
     u = profile_agent.normalize_dummy_user(u)
     p.members.append(u)
     p.member_keys[user_key] = uid
+    # RETURN: the public id plus the secret key this device sends on votes and additions
     return {"user_id":uid, "user_key":user_key, "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members]}
 
 # ── Generate Queue ────────────────────────────────
@@ -231,26 +239,34 @@ SUMMARY_COOLDOWN = 30  # seconds between LLM calls for one party
 _summary_in_flight: set[str] = set()
 
 
+# What it does: refreshes the AI party summary only when its inputs changed and the cooldown allows.
+# Catch it: "How do you keep LLM cost bounded when the host keeps clicking Generate?"
+# Card: docs/cards/summary-cache.md
 async def _refresh_summary(p: PartySession, members, queue, now_playing) -> str:
     """Decide cached / cooldown / call, and call the LLM at most once per cooldown."""
+    # STEP: key = hash of the exact prompt (guests, tastes, top of queue in order, now playing)
     key = summary_key(build_summary_prompt(members, queue, now_playing))
     with STATE_LOCK:
+        # DECISION: same key as the stored summary, so skip the call
         if p.ai_summary and key == p.summary_key:
             return "cached"  # nothing the model would see has changed
+        # DECISION: inside the 30 s cooldown, keep the old text
         if p.ai_summary and time.time() - p.last_summary_at < SUMMARY_COOLDOWN:
             return "cooldown"  # changed, but too soon: keep the old text, the key stays stale
         if p.code in _summary_in_flight:
             return "in_flight"  # a parallel request is already asking the model
         _summary_in_flight.add(p.code)
     try:
-        # The LLM call runs without the lock so votes and polls are not held up.
+        # STEP: call providers in order (Groq, OpenAI, Bedrock) without the lock; the reply is sanitized
         summary = await llm_agent.summarize_party_taste(members, queue, now_playing)
+        # STEP: store text, key and time together
         with STATE_LOCK:
             p.ai_summary = summary
             p.summary_key = key
             p.last_summary_at = time.time()
     finally:
         _summary_in_flight.discard(p.code)
+    # RETURN: what happened, for tests and logs
     return "called"
 
 
@@ -347,18 +363,26 @@ def spotify_login_url(code: str, x_host_key: str | None = Header(None)):
     _OAUTH_STATES[state] = (code, now + OAUTH_STATE_TTL)
     return {"url": build_spotify_login_url(state)}
 
+# What it does: finishes Spotify sign-in and stores the host's token on the party that started it.
+# Catch it: "What is the OAuth state parameter for, and what breaks if you skip checking it?"
+# Card: docs/cards/oauth-callback.md
 @app.get("/auth/spotify/callback")
 async def spotify_callback(code: str | None = None, state: str = "", error: str | None = None):
+    # STEP: pop the state; it is single use, so a replay finds nothing
     pending = _OAUTH_STATES.pop(state, None) if state else None
+    # DECISION: unknown or expired state is rejected before anything touches Spotify
     if not pending or pending[1] < time.time():
         raise HTTPException(400, "Invalid or expired sign-in, start again from the host page")
-    party_code = pending[0]
+    party_code = pending[0]  # from the server, never from the URL
+    # DECISION: the host declined or Spotify sent an error
     if error or not code:
         return RedirectResponse(f"{settings.frontend_url}/host/{party_code}?spotify=error")
+    # STEP: swap the code for tokens and keep them in memory only
     token_data = await exchange_code_for_token(code)
     if party_code in PARTIES:
         PARTIES[party_code].spotify_token = token_data.get("access_token", "")
         PARTIES[party_code].spotify_refresh = token_data.get("refresh_token", "")
+    # RETURN: back to the host page
     redirect_url = f"{settings.frontend_url}/host/{party_code}?spotify=connected"
     return RedirectResponse(redirect_url)
 
