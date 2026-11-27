@@ -67,7 +67,15 @@ def test_summary_output_is_plain_text():
     assert len(sanitize_summary("word " * 500)) <= SUMMARY_MAX_CHARS + 3
 
 
-def test_model_reply_is_sanitized():
+def test_model_reply_with_markup_gets_the_template():
+    """Markup in a reply means the model copied it from somewhere (a guest name): show the template, not a cleaned copy."""
     agent = _agent("llama-3.1-8b-instant")
     agent.client.chat.completions.create.return_value = _reply("<img src=x onerror=alert(1)>Nice party.")
-    assert asyncio.run(agent.summarize_party_taste([], [])) == "Nice party."
+    assert asyncio.run(agent.summarize_party_taste([], [])).startswith("Party of 0 guests")
+    assert agent.last_rejection == "html"
+
+
+def test_model_reply_is_sanitized():
+    agent = _agent("llama-3.1-8b-instant")
+    agent.client.chat.completions.create.return_value = _reply("Nice **party**,\n\n with `pop`.")
+    assert asyncio.run(agent.summarize_party_taste([], [])) == "Nice party, with pop."
