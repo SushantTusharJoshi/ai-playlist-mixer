@@ -164,14 +164,19 @@ real secrets; `.env.example` holds placeholders only.
   OAuth callback was JSON, not HTML. Not changed beyond SEC-2.
 - `MAX_DEVICES` race: `join` checks then appends, and sync endpoints run in a
   thread pool, so two joins at the same instant could both pass the check.
-  Impact is one extra guest. Not changed here.
+  Impact is one extra guest. Fixed with the persistence change, which runs
+  every state change under one lock (20 parallel joins leave exactly 7 guests
+  in `tests/test_persistence.py`).
 
 ## Residual risks
 
 - Host key on one device: host controls work only in the browser that created
   the party (the key is in its `localStorage`). Clearing site data loses host
   control of that party.
-- Tokens at rest: Spotify tokens live in server memory only.
+- Tokens at rest: Spotify tokens live in server memory only. The room-state
+  file (see README, Reliability) leaves them out, so after a restart the host
+  reconnects Spotify. The file does hold host and guest keys, so the volume it
+  lives on should be private to the service.
 - Scopes: the Spotify login asks for `user-top-read`,
   `user-read-recently-played` and `playlist-modify-public`, which the app does
   not use. Dropping them would shrink the impact of any future token leak; not

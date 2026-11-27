@@ -4,8 +4,10 @@ import secrets
 import string
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -29,11 +31,27 @@ from app.models.schemas import (
     UserProfile,
     VoteRequest,
 )
+from app.persistence import STATE_LOCK, RoomStore, mutates
 from app.services.search import search_all
 from app.services.spotify import build_spotify_login_url, exchange_code_for_token, refresh_spotify_token
 from app.services.spotify_search import spotify_is_configured
 
-app = FastAPI(title="AI Playlist Mixer", version="1.0.0")
+room_store = RoomStore(settings.room_state_path or None, settings.room_idle_ttl_seconds)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Restart recovery: rebuild live parties from the last saved file.
+    restored = room_store.load()
+    with STATE_LOCK:
+        PARTIES.update(restored)
+    if restored:
+        print(f"Restored {len(restored)} parties from {room_store.path}")
+    yield
+    await run_in_threadpool(room_store.save, PARTIES)
+
+
+app = FastAPI(title="AI Playlist Mixer", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -97,6 +115,9 @@ def _public(p: PartySession) -> dict:
 OAUTH_STATE_TTL = 600
 _OAUTH_STATES: dict[str, tuple[str, float]] = {}
 
+def _store() -> RoomStore:
+    return room_store
+
 def _qi(q: QueueItem) -> dict:
     return {"track_id":q.track.id,"name":q.track.name,"artist":q.track.artist,"genres":q.track.genres,
             "score":q.score,"votes":q.votes,"reasons":q.reasons,"matched_users":q.matched_users,
@@ -106,7 +127,8 @@ def _qi(q: QueueItem) -> dict:
 # ── Health ────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"ok":True,"v":"1.0.0","spotify":spotify_is_configured(),"ai":llm_agent is not None}
+    return {"ok":True,"v":"1.0.0","spotify":spotify_is_configured(),"ai":llm_agent is not None,
+            "persistence":room_store.enabled}
 
 @app.get("/genres")
 def list_genres():
@@ -114,7 +136,9 @@ def list_genres():
 
 # ── Party ─────────────────────────────────────────
 @app.post("/party/create")
+@mutates(_store, PARTIES)
 def create_party(req: CreatePartyRequest):
+    room_store.expire_idle(PARTIES)
     if len(PARTIES) >= settings.max_parties:
         raise HTTPException(503, "Too many live parties, try again later")
     code = _code()
@@ -130,22 +154,24 @@ def get_party(code: str):
 
 @app.get("/party/{code}/poll")
 def poll(code: str):
-    if code not in PARTIES: raise HTTPException(404, "Party not found")
-    p = PARTIES[code]
-    return {
-        "code":p.code,
-        "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
-        "queue":[_qi(q) for q in p.queue],
-        "ai_summary":p.ai_summary,
-        "cluster_info":p.cluster_info.model_dump() if p.cluster_info else None,
-        "now_playing":p.now_playing.model_dump(),
-        "has_spotify":bool(p.spotify_token),
-    }
+    with STATE_LOCK:
+        p = _party(code)
+        p.last_active_at = time.time()  # polling devices keep the party alive; not saved on its own
+        return {
+            "code":p.code,
+            "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
+            "queue":[_qi(q) for q in p.queue],
+            "ai_summary":p.ai_summary,
+            "cluster_info":p.cluster_info.model_dump() if p.cluster_info else None,
+            "now_playing":p.now_playing.model_dump(),
+            "has_spotify":bool(p.spotify_token),
+        }
 
 MAX_DEVICES = 7
 
 # ── Join ──────────────────────────────────────────
 @app.post("/party/{code}/join")
+@mutates(_store, PARTIES)
 def join(code: str, req: JoinRequest):
     p = _party(code)
     genre = req.genre.lower().strip()
@@ -168,34 +194,44 @@ def join(code: str, req: JoinRequest):
 # ── Generate Queue ────────────────────────────────
 @app.post("/party/{code}/generate-queue")
 async def generate_queue(code: str, x_host_key: str | None = Header(None)):
-    p = _party(code)
-    _require_host(p, x_host_key)
-    if not p.members: raise HTTPException(400, "Add guests first")
+    with STATE_LOCK:
+        p = _party(code)
+        _require_host(p, x_host_key)
+        if not p.members: raise HTTPException(400, "Add guests first")
 
-    votes = voting_agent.get_votes(p)
-    p.queue = ranking_agent.rank(p.members, votes=votes)
-    p.queue = fairness_agent.rerank(p.queue)
+        votes = voting_agent.get_votes(p)
+        p.queue = ranking_agent.rank(p.members, votes=votes)
+        p.queue = fairness_agent.rerank(p.queue)
 
-    cr = cluster_guests(p.members)
-    p.cluster_info = ClusterInfo(clusters={str(k):v for k,v in cr["clusters"].items()},
-                                  n_clusters=cr["n_clusters"],
-                                  cluster_genres={str(k):v for k,v in cr["cluster_genres"].items()})
+        cr = cluster_guests(p.members)
+        p.cluster_info = ClusterInfo(clusters={str(k):v for k,v in cr["clusters"].items()},
+                                      n_clusters=cr["n_clusters"],
+                                      cluster_genres={str(k):v for k,v in cr["cluster_genres"].items()})
+        members, queue = list(p.members), list(p.queue)
 
+    # The LLM call runs without the lock so votes and polls are not held up.
     SUMMARY_COOLDOWN = 30
     if llm_agent and (time.time() - p.last_summary_at >= SUMMARY_COOLDOWN or not p.ai_summary):
-        p.ai_summary = await llm_agent.summarize_party_taste(p.members, p.queue)
-        p.last_summary_at = time.time()
+        summary = await llm_agent.summarize_party_taste(members, queue)
+        with STATE_LOCK:
+            p.ai_summary = summary
+            p.last_summary_at = time.time()
     elif not llm_agent:
         gs = set()
-        for u in p.members: gs.update(u.top_genres)
-        p.ai_summary = f"Party of {len(p.members)} guests across {', '.join(sorted(gs)[:5])}. Queue balanced with ML fairness ranking."
+        for u in members: gs.update(u.top_genres)
+        p.ai_summary = f"Party of {len(members)} guests across {', '.join(sorted(gs)[:5])}. Queue balanced with ML fairness ranking."
 
-    return {"queue":[_qi(q) for q in p.queue],"members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
-            "ai_summary":p.ai_summary,"cluster_info":p.cluster_info.model_dump() if p.cluster_info else None,
-            "similarity":user_similarity_matrix(p.members)}
+    with STATE_LOCK:
+        p.last_active_at = time.time()
+        body = {"queue":[_qi(q) for q in p.queue],"members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members],
+                "ai_summary":p.ai_summary,"cluster_info":p.cluster_info.model_dump() if p.cluster_info else None,
+                "similarity":user_similarity_matrix(p.members)}
+    await run_in_threadpool(room_store.save, PARTIES)
+    return body
 
 # ── Vote ──────────────────────────────────────────
 @app.post("/party/{code}/vote")
+@mutates(_store, PARTIES)
 def vote(code: str, req: VoteRequest, x_host_key: str | None = Header(None), x_user_key: str | None = Header(None)):
     p = _party(code)
     voter, _ = _actor(p, x_host_key, x_user_key)
@@ -213,6 +249,7 @@ def vote(code: str, req: VoteRequest, x_host_key: str | None = Header(None), x_u
 
 # ── Add Track ─────────────────────────────────────
 @app.post("/party/{code}/add-track")
+@mutates(_store, PARTIES)
 def add_track(code: str, track: Track, added_by: str = Query("", max_length=40),
               x_host_key: str | None = Header(None), x_user_key: str | None = Header(None)):
     p = _party(code)
@@ -227,6 +264,7 @@ def add_track(code: str, track: Track, added_by: str = Query("", max_length=40),
 
 # ── Now Playing ───────────────────────────────────
 @app.post("/party/{code}/now-playing")
+@mutates(_store, PARTIES)
 def set_now_playing(code: str, req: NowPlayingRequest, x_host_key: str | None = Header(None)):
     _require_host(_party(code), x_host_key)
     data = req.model_dump()
@@ -235,6 +273,7 @@ def set_now_playing(code: str, req: NowPlayingRequest, x_host_key: str | None = 
     return {"ok":True}
 
 @app.post("/party/{code}/stop-playing")
+@mutates(_store, PARTIES)
 def stop_playing(code: str, x_host_key: str | None = Header(None)):
     _require_host(_party(code), x_host_key)
     PARTIES[code].now_playing = NowPlaying()
@@ -244,6 +283,7 @@ def stop_playing(code: str, x_host_key: str | None = Header(None)):
 
 # ── Queue Next (insert after current) ────────────────────────
 @app.post("/party/{code}/queue-next")
+@mutates(_store, PARTIES)
 def queue_next(code: str, track: Track, added_by: str = Query("", max_length=40),
                x_host_key: str | None = Header(None), x_user_key: str | None = Header(None)):
     p = _party(code)

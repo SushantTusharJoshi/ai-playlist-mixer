@@ -78,10 +78,16 @@ These are real architectural limitations, not polish issues:
 | YouTube iframe reloads every 3s | Guest poll overwrites `ytVideoId` state even when track hasn't changed | Add equality check before updating state; only set if ID differs |
 | YouTube audio stops when player is closed | YouTube embed requires visible iframe to maintain audio context | Migrate to YouTube IFrame API with programmatic `playVideo()` instead of embed |
 | Summary refreshes on a timer | A 30-second cooldown limits calls, but the summary is not keyed to what changed in the room | Cache the summary on the full room state (guests, tastes, queue order, now playing) |
-| No persistent party history | Sessions exist only in memory; server restart wipes everything | Add PostgreSQL session persistence with TTL |
 | Single-host failure | If host disconnects, party state becomes stale for guests | Promote guest to host via server-side host election on disconnect |
 
 ---
+
+## Reliability
+
+- Room state (guests, queue, votes, now playing) is saved to a JSON file after every change, at `ROOM_STATE_PATH` (default `data/rooms.json`). Writes go to a temp file in the same folder and are swapped in with `os.replace`, so a crash mid-write keeps the previous file. One write runs at a time.
+- On startup the app loads that file, so a restart or redeploy keeps every live party. Spotify tokens are not saved: after a restart the host taps Connect Spotify again.
+- Parties with no activity (no poll and no change) for `ROOM_IDLE_TTL_SECONDS` (default 6 hours) are dropped.
+- Single instance only. State lives in one process's memory and one file; two workers or two replicas would each keep their own parties and overwrite each other's file. Keep one replica and one worker (`Procfile` uses `-w 1`).
 
 ## Local Setup
 

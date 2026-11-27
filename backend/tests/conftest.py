@@ -8,7 +8,17 @@ from app.main import app
 
 
 @pytest.fixture()
-def client():
+def room_file(tmp_path, monkeypatch):
+    """Point room persistence at a temp file for this test."""
+    from app import main
+    from app.persistence import RoomStore
+    path = tmp_path / "rooms.json"
+    monkeypatch.setattr(main, "room_store", RoomStore(path, main.settings.room_idle_ttl_seconds))
+    return path
+
+
+@pytest.fixture()
+def client(room_file):
     """FastAPI test client that clears party state between tests."""
     PARTIES.clear()
     with TestClient(app) as c:
