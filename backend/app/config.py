@@ -17,5 +17,9 @@ class Settings(BaseSettings):
     max_parties: int = 500
     max_queue: int = 200
     youtube_calls_per_minute: int = 30
+    # Room state file. Production mounts a Railway volume and points this at it.
+    # Set to an empty string to turn persistence off.
+    room_state_path: str = "data/rooms.json"
+    room_idle_ttl_seconds: int = 6 * 3600
 
 settings = Settings()

@@ -1,3 +1,4 @@
+import time
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -69,6 +70,8 @@ class PartySession(BaseModel):
     # Net votes per track, and each voter's current choice ("voter|track" -> -1 or 1).
     votes: dict[str, int] = Field(default_factory=dict)
     vote_choices: dict[str, int] = Field(default_factory=dict)
+    # Last time anyone polled or changed this party; drives idle expiry.
+    last_active_at: float = Field(default_factory=time.time)
 
 class CreatePartyRequest(BaseModel):
     host_id: str = "host-dev"
