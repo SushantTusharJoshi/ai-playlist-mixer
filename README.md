@@ -206,3 +206,8 @@ Interview-critical functions carry a header (`What it does`, `Catch it`, `Card`)
 ## Privacy
 
 Party and host pages are private links: they send `noindex` in both a meta tag and an `X-Robots-Tag` header, so search engines do not list them.
+
+## About the coder
+
+Built by [Sushant Joshi](https://github.com/SushantTusharJoshi), an AI engineer. The party-summary eval gate uses
+[llm-eval-kit](https://github.com/SushantTusharJoshi/llm-eval-kit), another of my repos.
