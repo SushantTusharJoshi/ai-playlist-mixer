@@ -1,6 +1,8 @@
 'use client';
 import { use, useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../../../lib/api';
+import Player from '@/app/components/Player';
+import type { NowPlaying } from '@/lib/player-state';
 
 export default function PartyPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
@@ -8,8 +10,11 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   const [members, setMembers] = useState<any[]>([]);
   const [queue, setQueue] = useState<any[]>([]);
   const [summary, setSummary] = useState('');
-  const [np, setNp] = useState<any>({ is_playing: false });
-  const [npExpanded, setNpExpanded] = useState(false);
+  // Guests see the room's player read-only; <Player> merges now playing by seq.
+  const [incomingNp, setIncomingNp] = useState<any>(null);
+  const [npId, setNpId] = useState('');
+  const [upNextId, setUpNextId] = useState<string | null>(null);
+  const onNowPlaying = useCallback((np: NowPlaying) => setNpId(np.track_id), []);
   const [userId, setUserId] = useState('');
   const [userKey, setUserKey] = useState('');
   const [userName, setUserName] = useState('');
@@ -21,20 +26,8 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
   const [showDrop, setShowDrop] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [src, setSrc] = useState('');
-  const [ytVideoId, setYtVideoId] = useState('');
-  const [ytSrc, setYtSrc] = useState('');
-  const [ytMinimized, setYtMinimized] = useState(false);
   const timer = useRef<any>(null);
   const dropRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (ytVideoId) {
-      const startOffset = np.started_at ? Math.floor((Date.now() / 1000) - np.started_at) : 0;
-      setYtSrc('https://www.youtube.com/embed/' + ytVideoId + '?autoplay=1&rel=0&start=' + Math.max(startOffset, 0));
-    } else {
-      setYtSrc('');
-    }
-  }, [ytVideoId]);
 
   // What it does: every 3 seconds pulls the room and changes only what changed, so playback does not restart.
   // Catch it: "Why polling instead of WebSockets, and how do you stop a poll from restarting the video?"
@@ -47,13 +40,9 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
       // DECISION: an empty queue in a reply never wipes the one on screen
       if (d.queue?.length) setQueue(d.queue);
       setSummary(d.ai_summary || '');
-      setNp((prev: any) => {
-        const incoming = d.now_playing || { is_playing: false };
-        // DECISION: same track and play state keeps the old object, so the player is left alone
-        if (prev.track_id === incoming.track_id && prev.is_playing === incoming.is_playing) return prev;
-        // RETURN: a real change replaces now playing
-        return incoming;
-      });
+      // DECISION: now playing goes to <Player>, which keeps it unless seq or updated_at moved on
+      setIncomingNp(d.now_playing || null);
+      setUpNextId(d.up_next_track_id ?? null);
     } catch {}
   }, [code]);
 
@@ -101,7 +90,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
       const d = await api(`/party/${code}/queue-next?added_by=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-User-Key': userKey }, body: JSON.stringify({
         id: t.id, name: t.name, artist: t.artist, genres: t.genres || [],
         energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5,
-        uri: t.uri || null, album_art: t.album_art || null
+        uri: t.uri || null, album_art: t.album_art || null, youtube_id: t.youtube_id || null
       }) });
       if (d.added) { setAdded(p => new Set(p).add(t.id)); poll(); }
     } catch {}
@@ -113,7 +102,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
       const d = await api(`/party/${code}/add-track?added_by=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-User-Key': userKey }, body: JSON.stringify({
         id: t.id, name: t.name, artist: t.artist, genres: t.genres || [],
         energy: t.energy || 0.5, danceability: t.danceability || 0.5, popularity: t.popularity || 0.5,
-        uri: t.uri || null, album_art: t.album_art || null
+        uri: t.uri || null, album_art: t.album_art || null, youtube_id: t.youtube_id || null
       }) });
       if (d.added) { setAdded(p => new Set(p).add(t.id)); poll(); }
     } catch {}
@@ -121,9 +110,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
 
   // Separate user-added tracks from ML-generated
   const userAdded = queue.filter(q => (q.reasons || []).some((r: string) => r.startsWith('added by')));
-  const npIdx = queue.findIndex(q => q.track_id === np.track_id);
-  const nextTrack = npIdx >= 0 && npIdx < queue.length - 1 ? queue[npIdx + 1] : null;
-  const prevTrack = npIdx > 0 ? queue[npIdx - 1] : null;
+  const nextTrack = upNextId ? queue.find(q => q.track_id === upNextId) : null;
 
   if (!userId) {
     return (
@@ -205,9 +192,6 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
                   ))}
                 </div>
               </div>
-              {item.track_id?.startsWith('yt-') && (
-                <button className="btn btn-sm btn-secondary" onClick={() => setYtVideoId(item.track_id.replace('yt-', ''))} style={{ padding: '4px 10px', fontSize: 14 }}>▶</button>
-              )}
               <div className="track-votes">
                 <button className={`btn-vote up ${voted[item.track_id] === 1 ? 'active' : ''}`} onClick={() => vote(item.track_id, 1)}>▲</button>
                 <span className={`vote-count ${item.votes > 0 ? 'positive' : item.votes < 0 ? 'negative' : 'zero'}`} style={{ fontSize: 16, fontWeight: 800 }}>{item.votes > 0 ? `+${item.votes}` : item.votes}</span>
@@ -225,7 +209,7 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
         <div className="card" style={{ padding: '8px 0' }}>
           <div className="card-title" style={{ padding: '0 14px' }}>Queue · {queue.length} tracks</div>
           {queue.map((item: any, idx: number) => {
-            const isPlaying = np.track_id === item.track_id;
+            const isPlaying = npId === item.track_id;
             const isUserAdded = (item.reasons || []).some((r: string) => r.startsWith('added by'));
             return (
               <div key={item.track_id} className="track-row"
@@ -256,47 +240,8 @@ export default function PartyPage({ params }: { params: Promise<{ code: string }
         <div className="card" style={{ textAlign: 'center', padding: 36, color: 'var(--tx2)' }}>Waiting for the host to generate the queue...</div>
       )}
 
-      {/* Now Playing Bar with prev/next info */}
-      {/* YouTube Player - optional */}
-      {np.youtube_id && ytVideoId && (
-        <div style={{ position: 'fixed', bottom: 80, left: 0, right: 0, zIndex: 150, display: 'flex', justifyContent: 'center', padding: '0 16px' }}>
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--bdr)', borderRadius: 12, overflow: 'hidden', width: '100%', maxWidth: 480, boxShadow: '0 -8px 32px rgba(0,0,0,0.5)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px' }}>
-              <span style={{ fontSize: 12, color: 'var(--tx2)' }}>YouTube Player</span>
-              <button onClick={() => setYtMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer' }}>_</button>
-              <button onClick={() => { setYtVideoId(''); setYtMinimized(false); }} style={{ background: 'none', border: 'none', color: 'var(--tx3)', fontSize: 16, cursor: 'pointer', marginLeft: 8 }}>x</button>
-            </div>
-            <iframe key={ytVideoId} width="100%" height={ytMinimized ? "0" : "220"} src={ytSrc} allow="autoplay; encrypted-media" allowFullScreen style={{ border: 'none', display: 'block' }} />
-          </div>
-        </div>
-      )}
-
-      {np.is_playing && np.name && !npExpanded && (
-        <div className="now-playing" onClick={() => setNpExpanded(true)} style={{ cursor: 'pointer' }}>
-          {np.album_art && <img src={np.album_art} alt="" />}
-          <div className="np-info">
-            <div className="np-name">{np.name}</div>
-            <div className="np-artist">{np.artist}</div>
-            {nextTrack && <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 2 }}>Up next: {nextTrack.name}</div>}
-          </div>
-          <span className="np-badge">PLAYING</span>
-            {np.youtube_id && !ytVideoId && <button onClick={(e) => { e.stopPropagation(); setYtVideoId(np.youtube_id); setYtMinimized(false); }} style={{ background: 'rgba(255,0,0,0.15)', border: '1px solid rgba(255,0,0,0.3)', color: '#f44', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Watch Video</button>}
-        </div>
-      )}
-
-      {/* Expanded Now Playing */}
-      {np.is_playing && np.name && npExpanded && (
-        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(180deg, var(--bg) 0%, #1a1040 100%)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32 }}
-          onClick={() => setNpExpanded(false)}>
-          {np.album_art && <img src={np.album_art} alt="" style={{ width: 280, height: 280, borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.6)', marginBottom: 28 }} />}
-          <div style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 6 }}>{np.name}</div>
-          <div style={{ fontSize: 16, color: 'var(--tx2)', marginBottom: 8 }}>{np.artist}</div>
-          {prevTrack && <div style={{ fontSize: 12, color: 'var(--tx3)', marginBottom: 4 }}>Previous: {prevTrack.name}</div>}
-          {nextTrack && <div style={{ fontSize: 12, color: 'var(--bl)', marginBottom: 20 }}>Up next: {nextTrack.name}</div>}
-          <span className="np-badge" style={{ fontSize: 12, padding: '6px 16px' }}>NOW PLAYING</span>
-          <p style={{ marginTop: 32, fontSize: 12, color: 'var(--tx3)' }}>Tap anywhere to close</p>
-        </div>
-      )}
+      <Player code={code} canControl={false} incoming={incomingNp} hasSpotify={false} hasQueue={queue.length > 0}
+        upNextName={nextTrack?.name ?? null} onNowPlaying={onNowPlaying} />
     </div>
   );
 }
