@@ -127,8 +127,9 @@ def test_downvote_spam_cannot_lift_a_track(client: TestClient, party_code: str):
     for _ in range(60):
         client.post(f"/party/{party_code}/vote", json={"track_id": last, "value": -1}, headers=host_headers(party_code))
     after = client.get(f"/party/{party_code}/poll").json()["queue"]
-    assert after[-1]["track_id"] == last
-    mine = after[-1]
+    mine = next(q for q in after if q["track_id"] == last)
+    assert after[0]["track_id"] != last
+    assert mine["score"] == min(q["score"] for q in after)
     assert mine["votes"] == -1  # 59 of the 60 were duplicates
     assert mine["score"] == round(lowest["score"] - 0.04, 4)
     assert {q["track_id"]: q["score"] for q in after if q["track_id"] != last} == others_before

@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from app.agents.fairness_agent import FairnessAgent
+from app.agents.fairness_agent import FairnessAgent, reorder_after_vote
 from app.agents.llm_agent import LLMAgent, build_summary_prompt, summary_key
 from app.agents.profile_agent import ProfileAgent
 from app.agents.ranking_agent import RankingAgent
@@ -269,7 +269,7 @@ def vote(code: str, req: VoteRequest, x_host_key: str | None = Header(None), x_u
     # Only the voted track moves: swap its old clamped boost for the new one.
     old_votes, item.votes = item.votes, p.votes.get(req.track_id, 0)
     item.score = round(item.score - vote_boost(old_votes) + vote_boost(item.votes), 4)
-    p.queue.sort(key=lambda x: x.score, reverse=True)
+    p.queue = reorder_after_vote(p.queue)
     return {"queue":[_qi(q) for q in p.queue]}
 
 # ── Add Track ─────────────────────────────────────

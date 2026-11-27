@@ -1,0 +1,525 @@
+{
+  "meta": {
+    "command": "python -m benchmarks.fairness --seeds 0-29 --plays 20 --repeats 5",
+    "generated_at": "2026-11-27 16:14 UTC",
+    "python": "3.13.5",
+    "platform": "Darwin arm64",
+    "seeds": "0-29",
+    "plays": 20,
+    "mixes": {
+      "balanced_7": [
+        "pop",
+        "hip hop",
+        "rock",
+        "edm",
+        "latin",
+        "jazz",
+        "country"
+      ],
+      "pop_majority": [
+        "pop",
+        "pop",
+        "pop",
+        "pop",
+        "pop",
+        "jazz",
+        "country"
+      ],
+      "two_camps": [
+        "edm",
+        "edm",
+        "edm",
+        "rock",
+        "rock",
+        "rock"
+      ],
+      "one_outlier": [
+        "hip hop",
+        "hip hop",
+        "hip hop",
+        "hip hop",
+        "hip hop",
+        "hip hop",
+        "jazz"
+      ],
+      "small_3": [
+        "k-pop",
+        "indie",
+        "r&b"
+      ]
+    },
+    "rerank_scaling": [
+      {
+        "queue_size": 25,
+        "mixed_ms_median": 0.03154200021526776,
+        "one_genre_ms_median": 0.042875000872300006
+      },
+      {
+        "queue_size": 50,
+        "mixed_ms_median": 0.07245800043165218,
+        "one_genre_ms_median": 0.17033400035870727
+      },
+      {
+        "queue_size": 100,
+        "mixed_ms_median": 0.170667000929825,
+        "one_genre_ms_median": 0.6588329997612163
+      },
+      {
+        "queue_size": 200,
+        "mixed_ms_median": 0.28612499954761006,
+        "one_genre_ms_median": 2.634542001032969
+      },
+      {
+        "queue_size": 400,
+        "mixed_ms_median": 0.6170409997139359,
+        "one_genre_ms_median": 11.34716600063257
+      }
+    ]
+  },
+  "per_mix": {
+    "balanced_7": {
+      "popularity": {
+        "plays_min": 0,
+        "plays_max": 6.366666666666666,
+        "plays_min_max_ratio": 0.0,
+        "plays_gini": 0.4337191426278114,
+        "guests_never_served": 1.6666666666666667,
+        "worst_guest_wait": 21,
+        "exposure_min_max_ratio": 0.0,
+        "distinct_genres": 18.866666666666667,
+        "longest_same_genre_run": 2.966666666666667,
+        "latency_ms_median": 0.008249999154941179
+      },
+      "round_robin": {
+        "plays_min": 2,
+        "plays_max": 3,
+        "plays_min_max_ratio": 0.6666666666666666,
+        "plays_gini": 0.04285714285714293,
+        "guests_never_served": 0,
+        "worst_guest_wait": 7,
+        "exposure_min_max_ratio": 0.37643218118895383,
+        "distinct_genres": 18.233333333333334,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.04987499960407149
+      },
+      "current": {
+        "plays_min": 0.26666666666666666,
+        "plays_max": 5.3,
+        "plays_min_max_ratio": 0.05333333333333334,
+        "plays_gini": 0.350249433106576,
+        "guests_never_served": 0.8333333333333334,
+        "worst_guest_wait": 19.966666666666665,
+        "exposure_min_max_ratio": 0.03815664808471589,
+        "distinct_genres": 16.1,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.5283749997033738
+      },
+      "current_no_rerank": {
+        "plays_min": 0.23333333333333334,
+        "plays_max": 5.566666666666666,
+        "plays_min_max_ratio": 0.04666666666666667,
+        "plays_gini": 0.3634240362811792,
+        "guests_never_served": 0.9,
+        "worst_guest_wait": 20.133333333333333,
+        "exposure_min_max_ratio": 0.03533785388174241,
+        "distinct_genres": 15.933333333333334,
+        "longest_same_genre_run": 2.3333333333333335,
+        "latency_ms_median": 0.39641649982513627
+      },
+      "current_after_vote": {
+        "plays_min": 0.23333333333333334,
+        "plays_max": 5.366666666666666,
+        "plays_min_max_ratio": 0.04555555555555556,
+        "plays_gini": 0.3542630385487529,
+        "guests_never_served": 0.8666666666666667,
+        "worst_guest_wait": 19.866666666666667,
+        "exposure_min_max_ratio": 0.029575977433328925,
+        "distinct_genres": 16.333333333333332,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.7006665000517387
+      },
+      "after_vote_sort_only": {
+        "plays_min": 0.2,
+        "plays_max": 5.566666666666666,
+        "plays_min_max_ratio": 0.03888888888888889,
+        "plays_gini": 0.3616780045351475,
+        "guests_never_served": 0.9,
+        "worst_guest_wait": 20.1,
+        "exposure_min_max_ratio": 0.02267399172308092,
+        "distinct_genres": 16.233333333333334,
+        "longest_same_genre_run": 2.3,
+        "latency_ms_median": 0.5827915001646033
+      }
+    },
+    "pop_majority": {
+      "popularity": {
+        "plays_min": 1,
+        "plays_max": 16.533333333333335,
+        "plays_min_max_ratio": 0.06062908496732026,
+        "plays_gini": 0.27585622846043306,
+        "guests_never_served": 0,
+        "worst_guest_wait": 17.666666666666668,
+        "exposure_min_max_ratio": 0.03835430588313354,
+        "distinct_genres": 10.933333333333334,
+        "longest_same_genre_run": 7.866666666666666,
+        "latency_ms_median": 0.004583499503496569
+      },
+      "round_robin": {
+        "plays_min": 2,
+        "plays_max": 15,
+        "plays_min_max_ratio": 0.13333333333333333,
+        "plays_gini": 0.2254309825195902,
+        "guests_never_served": 0,
+        "worst_guest_wait": 7,
+        "exposure_min_max_ratio": 0.10514704432671433,
+        "distinct_genres": 10.066666666666666,
+        "longest_same_genre_run": 5,
+        "latency_ms_median": 0.04787499983649468
+      },
+      "current": {
+        "plays_min": 2.4,
+        "plays_max": 10.533333333333333,
+        "plays_min_max_ratio": 0.23087542087542087,
+        "plays_gini": 0.14173980169792502,
+        "guests_never_served": 0,
+        "worst_guest_wait": 9.166666666666666,
+        "exposure_min_max_ratio": 0.16386992041177587,
+        "distinct_genres": 9.466666666666667,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.7018125006652554
+      },
+      "current_no_rerank": {
+        "plays_min": 0,
+        "plays_max": 20,
+        "plays_min_max_ratio": 0.0,
+        "plays_gini": 0.2875548487793387,
+        "guests_never_served": 2,
+        "worst_guest_wait": 21,
+        "exposure_min_max_ratio": 0.0,
+        "distinct_genres": 6.566666666666666,
+        "longest_same_genre_run": 10.3,
+        "latency_ms_median": 0.21237500095594442
+      },
+      "current_after_vote": {
+        "plays_min": 2.466666666666667,
+        "plays_max": 10.533333333333333,
+        "plays_min_max_ratio": 0.23754208754208753,
+        "plays_gini": 0.14101566679552138,
+        "guests_never_served": 0,
+        "worst_guest_wait": 8.2,
+        "exposure_min_max_ratio": 0.17603375971519425,
+        "distinct_genres": 9.566666666666666,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 1.2131665007473202
+      },
+      "after_vote_sort_only": {
+        "plays_min": 0,
+        "plays_max": 20,
+        "plays_min_max_ratio": 0.0,
+        "plays_gini": 0.2875548487793387,
+        "guests_never_served": 2,
+        "worst_guest_wait": 21,
+        "exposure_min_max_ratio": 0.0,
+        "distinct_genres": 6.566666666666666,
+        "longest_same_genre_run": 10.433333333333334,
+        "latency_ms_median": 0.7262495000759372
+      }
+    },
+    "two_camps": {
+      "popularity": {
+        "plays_min": 7.966666666666667,
+        "plays_max": 10.6,
+        "plays_min_max_ratio": 0.7547811447811448,
+        "plays_gini": 0.0627155454608284,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.1,
+        "exposure_min_max_ratio": 0.6950579464080372,
+        "distinct_genres": 10,
+        "longest_same_genre_run": 2,
+        "latency_ms_median": 0.0033124997571576387
+      },
+      "round_robin": {
+        "plays_min": 8.966666666666667,
+        "plays_max": 11,
+        "plays_min_max_ratio": 0.8151515151515152,
+        "plays_gini": 0.05049905838041414,
+        "guests_never_served": 0,
+        "worst_guest_wait": 4,
+        "exposure_min_max_ratio": 0.63225294715466,
+        "distinct_genres": 8.5,
+        "longest_same_genre_run": 3,
+        "latency_ms_median": 0.045312000111152884
+      },
+      "current": {
+        "plays_min": 7.433333333333334,
+        "plays_max": 9.8,
+        "plays_min_max_ratio": 0.7619528619528619,
+        "plays_gini": 0.0590688351251535,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2,
+        "exposure_min_max_ratio": 0.8528649152888851,
+        "distinct_genres": 8,
+        "longest_same_genre_run": 1.5666666666666667,
+        "latency_ms_median": 0.3418755004531704
+      },
+      "current_no_rerank": {
+        "plays_min": 9.133333333333333,
+        "plays_max": 10.866666666666667,
+        "plays_min_max_ratio": 0.8464646464646465,
+        "plays_gini": 0.04333333333333321,
+        "guests_never_served": 0,
+        "worst_guest_wait": 3.533333333333333,
+        "exposure_min_max_ratio": 0.6606383934969257,
+        "distinct_genres": 8.533333333333333,
+        "longest_same_genre_run": 3.433333333333333,
+        "latency_ms_median": 0.13254149962449446
+      },
+      "current_after_vote": {
+        "plays_min": 7.333333333333333,
+        "plays_max": 9.866666666666667,
+        "plays_min_max_ratio": 0.7472390572390573,
+        "plays_gini": 0.0641465296144786,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2,
+        "exposure_min_max_ratio": 0.768334862498312,
+        "distinct_genres": 8,
+        "longest_same_genre_run": 1.6666666666666667,
+        "latency_ms_median": 0.5673544992532698
+      },
+      "after_vote_sort_only": {
+        "plays_min": 9.166666666666666,
+        "plays_max": 10.833333333333334,
+        "plays_min_max_ratio": 0.8525252525252526,
+        "plays_gini": 0.041666666666666546,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.8,
+        "exposure_min_max_ratio": 0.7603116544367159,
+        "distinct_genres": 8.566666666666666,
+        "longest_same_genre_run": 3.466666666666667,
+        "latency_ms_median": 0.36216650096321246
+      }
+    },
+    "one_outlier": {
+      "popularity": {
+        "plays_min": 5.933333333333334,
+        "plays_max": 11.1,
+        "plays_min_max_ratio": 0.5351515151515152,
+        "plays_gini": 0.07185160775436565,
+        "guests_never_served": 0,
+        "worst_guest_wait": 7,
+        "exposure_min_max_ratio": 0.3457187351446508,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 6,
+        "latency_ms_median": 0.0027915002647205256
+      },
+      "round_robin": {
+        "plays_min": 6.7,
+        "plays_max": 11.1,
+        "plays_min_max_ratio": 0.6043939393939394,
+        "plays_gini": 0.061473368809526543,
+        "guests_never_served": 0,
+        "worst_guest_wait": 7,
+        "exposure_min_max_ratio": 0.3556910368110026,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 6,
+        "latency_ms_median": 0.04918749982607551
+      },
+      "current": {
+        "plays_min": 6.933333333333334,
+        "plays_max": 10.366666666666667,
+        "plays_min_max_ratio": 0.6699999999999999,
+        "plays_gini": 0.04486329840797916,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.033333333333333,
+        "exposure_min_max_ratio": 0.6041614576365381,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 2.6,
+        "latency_ms_median": 0.2562500003477908
+      },
+      "current_no_rerank": {
+        "plays_min": 6.566666666666666,
+        "plays_max": 11.1,
+        "plays_min_max_ratio": 0.5919696969696969,
+        "plays_gini": 0.06325773961742738,
+        "guests_never_served": 0,
+        "worst_guest_wait": 13.6,
+        "exposure_min_max_ratio": 0.32775072826985513,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 10.933333333333334,
+        "latency_ms_median": 0.10635399939928902
+      },
+      "current_after_vote": {
+        "plays_min": 6.9,
+        "plays_max": 10.4,
+        "plays_min_max_ratio": 0.6645454545454546,
+        "plays_gini": 0.046063778600055984,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.2,
+        "exposure_min_max_ratio": 0.6166468214705654,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 3.066666666666667,
+        "latency_ms_median": 0.4248340001140605
+      },
+      "after_vote_sort_only": {
+        "plays_min": 6.533333333333333,
+        "plays_max": 11.1,
+        "plays_min_max_ratio": 0.5891919191919192,
+        "plays_gini": 0.0636974147049898,
+        "guests_never_served": 0,
+        "worst_guest_wait": 13.266666666666667,
+        "exposure_min_max_ratio": 0.32674030148334293,
+        "distinct_genres": 9,
+        "longest_same_genre_run": 10.933333333333334,
+        "latency_ms_median": 0.2699374999792781
+      }
+    },
+    "small_3": {
+      "popularity": {
+        "plays_min": 2.033333333333333,
+        "plays_max": 8.6,
+        "plays_min_max_ratio": 0.2410064935064935,
+        "plays_gini": 0.26587262420337765,
+        "guests_never_served": 0.03333333333333333,
+        "worst_guest_wait": 10.366666666666667,
+        "exposure_min_max_ratio": 0.1501874881654942,
+        "distinct_genres": 13.6,
+        "longest_same_genre_run": 4.3,
+        "latency_ms_median": 0.0033750002330634743
+      },
+      "round_robin": {
+        "plays_min": 5.866666666666666,
+        "plays_max": 7.066666666666666,
+        "plays_min_max_ratio": 0.8309523809523809,
+        "plays_gini": 0.04226584980970951,
+        "guests_never_served": 0,
+        "worst_guest_wait": 3,
+        "exposure_min_max_ratio": 0.7069895691022844,
+        "distinct_genres": 14.2,
+        "longest_same_genre_run": 1.9333333333333333,
+        "latency_ms_median": 0.024124999981722794
+      },
+      "current": {
+        "plays_min": 4.566666666666666,
+        "plays_max": 9.133333333333333,
+        "plays_min_max_ratio": 0.5057407407407407,
+        "plays_gini": 0.13992094861660087,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.433333333333333,
+        "exposure_min_max_ratio": 0.4880353781412183,
+        "distinct_genres": 13.5,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.3067084999202052
+      },
+      "current_no_rerank": {
+        "plays_min": 3.566666666666667,
+        "plays_max": 10.333333333333334,
+        "plays_min_max_ratio": 0.34959595959595957,
+        "plays_gini": 0.2065353326222892,
+        "guests_never_served": 0,
+        "worst_guest_wait": 4.1,
+        "exposure_min_max_ratio": 0.31319070779068015,
+        "distinct_genres": 12.233333333333333,
+        "longest_same_genre_run": 5.066666666666666,
+        "latency_ms_median": 0.10391650084784487
+      },
+      "current_after_vote": {
+        "plays_min": 4.566666666666666,
+        "plays_max": 9.133333333333333,
+        "plays_min_max_ratio": 0.5052777777777778,
+        "plays_gini": 0.1402342593418109,
+        "guests_never_served": 0,
+        "worst_guest_wait": 2.466666666666667,
+        "exposure_min_max_ratio": 0.4934714431260205,
+        "distinct_genres": 13.7,
+        "longest_same_genre_run": 1,
+        "latency_ms_median": 0.5229584994594916
+      },
+      "after_vote_sort_only": {
+        "plays_min": 3.533333333333333,
+        "plays_max": 10.366666666666667,
+        "plays_min_max_ratio": 0.3460774410774411,
+        "plays_gini": 0.20847188238492592,
+        "guests_never_served": 0,
+        "worst_guest_wait": 3.933333333333333,
+        "exposure_min_max_ratio": 0.3226511030481329,
+        "distinct_genres": 12.2,
+        "longest_same_genre_run": 4.6,
+        "latency_ms_median": 0.33066649939428316
+      }
+    }
+  },
+  "overall": {
+    "popularity": {
+      "plays_min": 3.3866666666666667,
+      "plays_max": 10.64,
+      "plays_min_max_ratio": 0.3183136476812947,
+      "plays_gini": 0.22200302970136324,
+      "guests_never_served": 0.34,
+      "worst_guest_wait": 11.626666666666667,
+      "exposure_min_max_ratio": 0.24586369512026315,
+      "distinct_genres": 12.48,
+      "longest_same_genre_run": 4.626666666666667,
+      "latency_ms_median": 0.004462499782675877
+    },
+    "round_robin": {
+      "plays_min": 5.1066666666666665,
+      "plays_max": 9.433333333333334,
+      "plays_min_max_ratio": 0.610099567099567,
+      "plays_gini": 0.08450528047527667,
+      "guests_never_served": 0,
+      "worst_guest_wait": 5.6,
+      "exposure_min_max_ratio": 0.43530255571672305,
+      "distinct_genres": 12.0,
+      "longest_same_genre_run": 3.3866666666666667,
+      "latency_ms_median": 0.04327489987190347
+    },
+    "current": {
+      "plays_min": 4.32,
+      "plays_max": 9.026666666666667,
+      "plays_min_max_ratio": 0.4443804713804714,
+      "plays_gini": 0.1471684633908469,
+      "guests_never_served": 0.16666666666666669,
+      "worst_guest_wait": 7.119999999999999,
+      "exposure_min_max_ratio": 0.42941766391262665,
+      "distinct_genres": 11.213333333333333,
+      "longest_same_genre_run": 1.4333333333333333,
+      "latency_ms_median": 0.4270043002179591
+    },
+    "current_no_rerank": {
+      "plays_min": 3.9,
+      "plays_max": 11.573333333333334,
+      "plays_min_max_ratio": 0.36693939393939395,
+      "plays_gini": 0.19282105812671355,
+      "guests_never_served": 0.58,
+      "worst_guest_wait": 12.473333333333333,
+      "exposure_min_max_ratio": 0.26738353668784065,
+      "distinct_genres": 10.453333333333333,
+      "longest_same_genre_run": 6.413333333333333,
+      "latency_ms_median": 0.1903207001305418
+    },
+    "current_after_vote": {
+      "plays_min": 4.3,
+      "plays_max": 9.06,
+      "plays_min_max_ratio": 0.44003198653198655,
+      "plays_gini": 0.14914465458012396,
+      "guests_never_served": 0.17333333333333334,
+      "worst_guest_wait": 6.946666666666666,
+      "exposure_min_max_ratio": 0.41681257284868417,
+      "distinct_genres": 11.32,
+      "longest_same_genre_run": 1.5466666666666666,
+      "latency_ms_median": 0.6857959999251761
+    },
+    "after_vote_sort_only": {
+      "plays_min": 3.8866666666666667,
+      "plays_max": 11.573333333333334,
+      "plays_min_max_ratio": 0.36533670033670035,
+      "plays_gini": 0.19261376341421368,
+      "guests_never_served": 0.58,
+      "worst_guest_wait": 12.22,
+      "exposure_min_max_ratio": 0.2864754101382545,
+      "distinct_genres": 10.513333333333334,
+      "longest_same_genre_run": 6.346666666666667,
+      "latency_ms_median": 0.45436230011546286
+    }
+  }
+}

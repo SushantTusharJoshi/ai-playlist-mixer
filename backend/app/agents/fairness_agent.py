@@ -30,3 +30,12 @@ class FairnessAgent:
             remaining.remove(selected)
 
         return final
+
+
+def reorder_after_vote(queue: list[QueueItem]) -> list[QueueItem]:
+    """After a vote: sort by the new scores, then apply the same genre rerank as Generate Queue.
+
+    Sorting alone (the old vote path) threw away the rerank, so one vote brought back
+    long same-genre runs; see benchmarks/results/fairness.md, row after_vote_sort_only.
+    """
+    return FairnessAgent().rerank(sorted(queue, key=lambda x: x.score, reverse=True))
