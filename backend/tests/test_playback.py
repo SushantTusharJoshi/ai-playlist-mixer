@@ -204,17 +204,25 @@ def test_catalog_track_is_matched_to_spotify_for_a_connected_host(client, room, 
     assert np["source"] == "spotify" and np["uri"] == "spotify:track:abc"
 
 
-def test_next_bounds_upstream_searches(client, room, monkeypatch):
+def test_next_bounds_upstream_searches_without_skipping_unsearched_tracks(client, room, monkeypatch):
     calls = []
 
     async def miss(track_id, name, artist, has_spotify):
         calls.append(track_id)
+        resolve._cache[(track_id, "youtube")] = None  # what the real resolver stores for "nothing found"
         return None
     monkeypatch.setattr(main, "resolve_track", miss)
     monkeypatch.setattr(main, "can_resolve", lambda has_spotify: True)
-    r = _post(client, room, "next", {"expected_seq": 0}).json()
-    assert r["now_playing"]["track_id"] == f"yt-{YT[0]}"  # catalog misses are skipped
-    assert len(calls) == main.MAX_RESOLVE_PER_SKIP
+    catalog = [q.track.id for q in PARTIES[room].queue if not q.track.id.startswith("yt-")]
+    first = _post(client, room, "next", {"expected_seq": 0})
+    assert first.status_code == 503  # 3 searches used, the 4th track was not searched: do not skip it
+    assert len(calls) == main.MAX_RESOLVE_PER_SKIP and _np(client, room)["seq"] == 0
+    for _ in range(10):
+        r = _post(client, room, "next", {"expected_seq": 0})
+        if r.status_code == 200:
+            break
+    assert r.json()["now_playing"]["track_id"] == f"yt-{YT[0]}"
+    assert calls == catalog  # every catalog track searched exactly once; misses come from the cache
 
 
 def test_resolver_caches_hits_and_misses(monkeypatch):
@@ -239,8 +247,117 @@ def test_resolver_does_not_cache_when_over_the_youtube_budget(monkeypatch):
     monkeypatch.setattr(resolve, "youtube_is_configured", lambda: True)
     monkeypatch.setattr(resolve, "spotify_is_configured", lambda: False)
     monkeypatch.setattr(resolve, "_youtube_budget_ok", lambda: False)
-    assert asyncio.run(resolve.resolve_track("p01", "a", "b", has_spotify=False)) is None
+    with pytest.raises(resolve.ResolveUnavailable):
+        asyncio.run(resolve.resolve_track("p01", "a", "b", has_spotify=False))
     assert resolve._cache == {}
+
+
+def test_resolver_does_not_cache_a_failed_youtube_call(monkeypatch):
+    resolve.reset_resolve_cache()
+
+    async def fallback(q, limit=5):
+        return [{"youtube_id": None, "artist": "YouTube Search"}]  # what youtube_search returns on an API error
+    monkeypatch.setattr(resolve, "youtube_is_configured", lambda: True)
+    monkeypatch.setattr(resolve, "spotify_is_configured", lambda: False)
+    monkeypatch.setattr(resolve, "_youtube_budget_ok", lambda: True)
+    monkeypatch.setattr(resolve, "youtube_search", fallback)
+    with pytest.raises(resolve.ResolveUnavailable):
+        asyncio.run(resolve.resolve_track("p01", "a", "b", has_spotify=False))
+    assert resolve._cache == {}
+
+
+# Spotify search results on a host that has not connected Spotify (the production repro, party CDZ174)
+
+SP = [("sp-1", "Blinding Lights", "The Weeknd"), ("sp-2", "Blinding Lights (Remix)", "The Weeknd, ROSALIA")]
+
+
+@pytest.fixture()
+def spotify_only_room(client, party_with_member, monkeypatch):
+    """No generated queue: only two Spotify results, no Spotify login, YouTube key set."""
+    code, _ = party_with_member
+    for tid, name, artist in SP:
+        client.post(f"/party/{code}/add-track", headers=host_headers(code),
+                    json={"id": tid, "name": name, "artist": artist, "uri": f"spotify:track:{tid[3:]}"})
+    resolve.reset_resolve_cache()
+    searches = []
+
+    async def fake_yt(q, limit=5):
+        searches.append(q)
+        vid = {"The Weeknd Blinding Lights": "4NRXx6U8ABQ"}.get(q, "fHI8X4OXluQ")
+        return [{"youtube_id": vid, "album_art": f"https://i.ytimg.com/vi/{vid}/hq.jpg", "artist": "chan"}]
+    monkeypatch.setattr(resolve, "youtube_is_configured", lambda: True)
+    monkeypatch.setattr(resolve, "spotify_is_configured", lambda: True)  # search uses the app token
+    monkeypatch.setattr(resolve, "_youtube_budget_ok", lambda: True)
+    monkeypatch.setattr(resolve, "youtube_search", fake_yt)
+    return code, searches
+
+
+def test_poll_offers_spotify_results_for_youtube_matching(client, spotify_only_room):
+    code, _ = spotify_only_room
+    poll = client.get(f"/party/{code}/poll").json()
+    assert poll["has_spotify"] is False and poll["can_resolve"] is True
+    assert poll["up_next_track_id"] == "sp-1"
+
+
+def test_bar_play_with_nothing_playing_matches_a_spotify_track_to_youtube(client, spotify_only_room):
+    code, searches = spotify_only_room
+    r = _post(client, code, "next", {"expected_seq": 0, "repeat": True})  # what the bar Play button sends
+    np = r.json()["now_playing"]
+    assert r.status_code == 200 and np["ended"] is False
+    assert np["track_id"] == "sp-1" and np["source"] == "youtube" and np["youtube_id"] == "4NRXx6U8ABQ"
+    assert np["uri"] is None  # the YouTube player plays it, not Spotify
+    assert searches == ["The Weeknd Blinding Lights"]
+    item = client.get(f"/party/{code}/poll").json()["queue"][0]
+    assert item["uri"] == "spotify:track:1" and item["youtube_id"] == "4NRXx6U8ABQ"  # both kept
+
+
+def test_row_play_matches_and_the_match_is_reused(client, spotify_only_room):
+    code, searches = spotify_only_room
+    assert _post(client, code, "play", {"track_id": "sp-2"}).json()["now_playing"]["source"] == "youtube"
+    assert _post(client, code, "play", {"track_id": "sp-1"}).json()["now_playing"]["youtube_id"] == "4NRXx6U8ABQ"
+    assert _post(client, code, "play", {"track_id": "sp-2"}).status_code == 200
+    assert len(searches) == 2  # one search per track, then stored on the queue item
+
+
+def test_next_and_previous_match_too(client, spotify_only_room):
+    code, searches = spotify_only_room
+    _post(client, code, "play", {"track_id": "sp-1"})
+    nxt = _post(client, code, "next", {"expected_seq": 1}).json()["now_playing"]
+    assert nxt["track_id"] == "sp-2" and nxt["source"] == "youtube"
+    # Previous to a track whose stored match is gone (for example matched in an older process): it is matched again
+    PARTIES[code].queue[0].track = PARTIES[code].queue[0].track.model_copy(update={"youtube_id": None})
+    resolve.reset_resolve_cache()
+    back = _post(client, code, "prev", {"expected_seq": 2}).json()["now_playing"]
+    assert back["track_id"] == "sp-1" and back["source"] == "youtube"
+    assert PARTIES[code].history == []
+
+
+def test_a_track_is_skipped_only_when_the_search_finds_nothing(client, spotify_only_room, monkeypatch):
+    code, _ = spotify_only_room
+
+    async def none_for_first(q, limit=5):
+        return [] if "Remix" not in q else [{"youtube_id": "fHI8X4OXluQ", "album_art": None, "artist": "c"}]
+    monkeypatch.setattr(resolve, "youtube_search", none_for_first)
+    np = _post(client, code, "next", {"expected_seq": 0}).json()["now_playing"]
+    assert np["track_id"] == "sp-2"
+
+
+def test_busy_search_does_not_skip_or_end_the_queue(client, spotify_only_room, monkeypatch):
+    code, _ = spotify_only_room
+    monkeypatch.setattr(resolve, "_youtube_budget_ok", lambda: False)
+    r = _post(client, code, "next", {"expected_seq": 0, "repeat": True})
+    assert r.status_code == 503 and "try again" in r.json()["detail"]
+    np = _np(client, code)
+    assert np["seq"] == 0 and np["ended"] is False and PARTIES[code].history == []
+    assert _post(client, code, "play", {"track_id": "sp-1"}).status_code == 503
+
+
+def test_connected_host_plays_the_spotify_uri_without_searching(client, spotify_only_room):
+    code, searches = spotify_only_room
+    PARTIES[code].spotify_token = "ACCESS"
+    np = _post(client, code, "play", {"track_id": "sp-1"}).json()["now_playing"]
+    assert np["source"] == "spotify" and np["uri"] == "spotify:track:1"
+    assert searches == []
 
 
 def test_history_and_seq_survive_a_restart(client, room, tmp_path):

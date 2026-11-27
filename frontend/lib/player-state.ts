@@ -93,7 +93,8 @@ export function youtubeIdOf(t: { track_id: string; youtube_id?: string | null })
 export function playableAs(t: QueueTrack, hasSpotify: boolean, canResolve: boolean): Source | 'match' | null {
   if (t.uri && t.uri.startsWith('spotify:') && hasSpotify) return 'spotify';
   if (youtubeIdOf(t)) return 'youtube';
-  if (!t.uri && canResolve) return 'match';
+  // Catalog tracks, and Spotify results on a host without a Spotify login, are matched by the server.
+  if (canResolve) return 'match';
   return null;
 }
 
