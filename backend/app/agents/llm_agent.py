@@ -32,7 +32,8 @@ _URL = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
 def clean_field(text: str, max_chars: int) -> str:
     """Flatten one guest-supplied value for the prompt: one line, no markers, capped."""
     text = _CONTROL.sub(" ", text or "")
-    text = text.replace("<<<", "").replace(">>>", "")
+    # TEMP seed: fence markers no longer stripped
+    # text = text.replace("<<<", "").replace(">>>", "")
     text = " ".join(text.split())
     return text[:max_chars]
 
