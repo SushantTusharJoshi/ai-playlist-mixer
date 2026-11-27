@@ -1,0 +1,84 @@
+# Backend deploy to Railway production.
+#
+#   Runs after the CI workflow finishes on a push to main, and only when CI passed.
+#   Can also be started by hand from the Actions tab (main only).
+#   Deploys the exact commit CI tested, then waits for /health to answer 200.
+#   Skips itself with a notice when the RAILWAY_TOKEN secret is not set.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. A newer deploy waits for the running one instead of cancelling it.
+concurrency:
+  group: deploy-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    # workflow_run: CI passed on a push to main in this repo (not a pull request whose branch is named main).
+    # workflow_dispatch: only from main.
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run'
+          && github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_repository.full_name == github.repository)
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_CLI_VERSION: 5.76.0
+      HEALTH_URL: ${{ vars.API_BASE || 'https://ai-playlist-mixer-production.up.railway.app' }}/health
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Skip without a token
+        if: ${{ env.RAILWAY_TOKEN == '' }}
+        run: echo "::notice::RAILWAY_TOKEN is not set; skipping the backend deploy."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
+      - name: Install Railway CLI
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        run: |
+          npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+          railway --version
+
+      - name: Deploy backend
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        run: |
+          echo "Deploying ${DEPLOY_SHA} to Railway service ai-playlist-mixer"
+          railway up backend --path-as-root --service ai-playlist-mixer --detach
+
+      # The old deployment keeps serving until the new one is live, so a 200 here
+      # means the service is up, not proof that this commit is the one serving.
+      - name: Wait for /health
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        run: |
+          deadline=$(( $(date +%s) + 600 ))
+          while true; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || true)
+            if [ "$code" = "200" ]; then
+              echo "Health check passed: $HEALTH_URL returned 200"
+              exit 0
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$HEALTH_URL did not return 200 within 10 minutes (last status: ${code:-none})"
+              exit 1
+            fi
+            echo "Health returned ${code:-none}; retrying in 15s"
+            sleep 15
+          done

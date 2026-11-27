@@ -167,6 +167,8 @@ http://localhost:8000/auth/spotify/callback
 ## Deploy
 
 - Backend on Railway, frontend on Vercel. Set `NEXT_PUBLIC_API_BASE` on Vercel to the Railway URL, and `FRONTEND_URL` on Railway to the Vercel URL (CORS and the OAuth redirect use it).
+- The backend deploys itself. When CI passes on a push to main, the `Deploy` workflow (`.github/workflows/deploy.yml`) sends that exact commit to Railway and waits up to 10 minutes for `/health` to answer 200. If CI fails, nothing deploys. You can also start it by hand from the Actions tab. It needs the `RAILWAY_TOKEN` repo secret (a Railway project token); without it the workflow skips with a notice. Two deploys never run at the same time.
+- Manual fallback, from a directory linked to the Railway project: `railway up backend --path-as-root --service ai-playlist-mixer --detach`.
 - Persistence: add a Railway volume to the backend service (for example mounted at `/data`) and set `ROOM_STATE_PATH=/data/rooms.json`. Without a volume the file sits on the container disk and is lost on redeploy. Keep one replica.
 - Backend and frontend should deploy together when the API changes, as the host and guest keys did.
 
