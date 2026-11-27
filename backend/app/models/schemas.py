@@ -59,6 +59,7 @@ class PartySession(BaseModel):
     cluster_info: ClusterInfo | None = None
     ai_summary: str = ""
     last_summary_at: float = 0
+    summary_key: str = ""  # hash of the prompt behind ai_summary
     now_playing: NowPlaying = Field(default_factory=NowPlaying)
     spotify_token: str = ""
     spotify_refresh: str = ""

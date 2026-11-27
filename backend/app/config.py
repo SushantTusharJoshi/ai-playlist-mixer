@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     spotify_redirect_uri: str = "http://localhost:8000/auth/spotify/callback"
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    # Optional third provider. Off unless BEDROCK_MODEL_ID is set and AWS credentials are found.
+    bedrock_model_id: str = ""
+    aws_region: str = ""
+    # Empty: try groq, then openai, then bedrock. Or name exactly one of them.
+    llm_provider: str = ""
     youtube_api_key: str = ""
     max_parties: int = 500
     max_queue: int = 200

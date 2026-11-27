@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.agents.fairness_agent import FairnessAgent
+from app.agents.llm_agent import LLMAgent, build_summary_prompt, summary_key
 from app.agents.profile_agent import ProfileAgent
 from app.agents.ranking_agent import RankingAgent
 from app.agents.voting_agent import VotingAgent, vote_boost
@@ -71,10 +72,9 @@ voting_agent = VotingAgent()
 
 llm_agent = None
 try:
-    from app.agents.llm_agent import LLMAgent
     llm_agent = LLMAgent()
-except Exception:
-    pass
+except Exception as e:
+    print(f"LLM agent disabled: {e}")
 
 def _code(n=6):
     return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(n))
@@ -208,15 +208,11 @@ async def generate_queue(code: str, x_host_key: str | None = Header(None)):
                                       n_clusters=cr["n_clusters"],
                                       cluster_genres={str(k):v for k,v in cr["cluster_genres"].items()})
         members, queue = list(p.members), list(p.queue)
+        now_playing = p.now_playing.model_copy()
 
-    # The LLM call runs without the lock so votes and polls are not held up.
-    SUMMARY_COOLDOWN = 30
-    if llm_agent and (time.time() - p.last_summary_at >= SUMMARY_COOLDOWN or not p.ai_summary):
-        summary = await llm_agent.summarize_party_taste(members, queue)
-        with STATE_LOCK:
-            p.ai_summary = summary
-            p.last_summary_at = time.time()
-    elif not llm_agent:
+    if llm_agent:
+        await _refresh_summary(p, members, queue, now_playing)
+    else:
         gs = set()
         for u in members: gs.update(u.top_genres)
         p.ai_summary = f"Party of {len(members)} guests across {', '.join(sorted(gs)[:5])}. Queue balanced with ML fairness ranking."
@@ -228,6 +224,35 @@ async def generate_queue(code: str, x_host_key: str | None = Header(None)):
                 "similarity":user_similarity_matrix(p.members)}
     await run_in_threadpool(room_store.save, PARTIES)
     return body
+
+SUMMARY_COOLDOWN = 30  # seconds between LLM calls for one party
+
+
+_summary_in_flight: set[str] = set()
+
+
+async def _refresh_summary(p: PartySession, members, queue, now_playing) -> str:
+    """Decide cached / cooldown / call, and call the LLM at most once per cooldown."""
+    key = summary_key(build_summary_prompt(members, queue, now_playing))
+    with STATE_LOCK:
+        if p.ai_summary and key == p.summary_key:
+            return "cached"  # nothing the model would see has changed
+        if p.ai_summary and time.time() - p.last_summary_at < SUMMARY_COOLDOWN:
+            return "cooldown"  # changed, but too soon: keep the old text, the key stays stale
+        if p.code in _summary_in_flight:
+            return "in_flight"  # a parallel request is already asking the model
+        _summary_in_flight.add(p.code)
+    try:
+        # The LLM call runs without the lock so votes and polls are not held up.
+        summary = await llm_agent.summarize_party_taste(members, queue, now_playing)
+        with STATE_LOCK:
+            p.ai_summary = summary
+            p.summary_key = key
+            p.last_summary_at = time.time()
+    finally:
+        _summary_in_flight.discard(p.code)
+    return "called"
+
 
 # ── Vote ──────────────────────────────────────────
 @app.post("/party/{code}/vote")
