@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from app.agents.voting_agent import vote_boost as clamped_vote_boost
 from app.ml.features import user_track_affinity
 from app.models.schemas import QueueItem, Track, UserProfile
 
@@ -31,7 +32,7 @@ class RankingAgent:
             matched_users = [uid for uid, score in affinities.items() if score >= 0.55]
             avg_affinity = sum(affinities.values()) / max(len(affinities), 1)
             coverage = len(matched_users) / max(len(users), 1)
-            vote_boost = min(max(votes.get(track.id, 0), -5), 5) * 0.04
+            vote_boost = clamped_vote_boost(votes.get(track.id, 0))
 
             score = 0.55 * avg_affinity + 0.30 * coverage + 0.10 * track.popularity + vote_boost
 

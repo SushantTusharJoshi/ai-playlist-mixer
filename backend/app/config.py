@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
     youtube_api_key: str = ""
-    jwt_secret: str = "dev_change_me"
+    max_parties: int = 500
+    max_queue: int = 200
+    youtube_calls_per_minute: int = 30
 
 settings = Settings()

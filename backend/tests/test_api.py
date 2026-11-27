@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import host_headers
+
 
 def test_health(client: TestClient):
     resp = client.get("/health")
@@ -54,7 +56,7 @@ def test_poll_party(client: TestClient, party_with_member: tuple[str, str]):
 def test_vote(client: TestClient, party_with_member: tuple[str, str]):
     code, _ = party_with_member
     # Generate a queue first so there are tracks to vote on
-    resp = client.post(f"/party/{code}/generate-queue")
+    resp = client.post(f"/party/{code}/generate-queue", headers=host_headers(code))
     assert resp.status_code == 200
     queue = resp.json()["queue"]
     assert len(queue) > 0
@@ -63,6 +65,7 @@ def test_vote(client: TestClient, party_with_member: tuple[str, str]):
     resp = client.post(
         f"/party/{code}/vote",
         json={"track_id": track_id, "value": 1},
+        headers=host_headers(code),
     )
     assert resp.status_code == 200
     assert "queue" in resp.json()
@@ -104,11 +107,11 @@ def test_join_stays_at_limit(client: TestClient, party_code: str):
 
 def test_summary_cooldown(client: TestClient, party_with_member: tuple[str, str]):
     code, _ = party_with_member
-    resp1 = client.post(f"/party/{code}/generate-queue")
+    resp1 = client.post(f"/party/{code}/generate-queue", headers=host_headers(code))
     assert resp1.status_code == 200
     summary1 = resp1.json()["ai_summary"]
 
-    resp2 = client.post(f"/party/{code}/generate-queue")
+    resp2 = client.post(f"/party/{code}/generate-queue", headers=host_headers(code))
     assert resp2.status_code == 200
     summary2 = resp2.json()["ai_summary"]
     assert summary2 == summary1
