@@ -53,7 +53,7 @@ No architecture image existed in the repository before this README; the diagram 
 
 ## How fairness works
 
-1. Rank for the room (`RankingAgent.rank`). Every guest's candidate tracks are pooled. Each track gets `0.55 x average affinity + 0.30 x coverage + 0.10 x popularity + vote boost`, where affinity per guest is 50% genre overlap, 25% energy closeness, 20% danceability closeness and 5% popularity, coverage is the share of guests with affinity of at least 0.55, and the vote boost is 0.04 per net vote, capped at 5 votes either way.
+1. Rank for the room (`RankingAgent.rank`). Every guest's candidate tracks are pooled, together with the tracks guests added to the queue themselves (so Generate never drops them; they keep their source and their "added by" credit). Each track gets `0.55 x average affinity + 0.30 x coverage + 0.10 x popularity + vote boost`, where affinity per guest is 50% genre overlap, 25% energy closeness, 20% danceability closeness and 5% popularity, coverage is the share of guests with affinity of at least 0.55, and the vote boost is 0.04 per net vote, capped at 5 votes either way.
 2. Spread genres (`FairnessAgent.rerank`). Walk the ranked list and, at each turn, take the best track that shares no genre with the two tracks before it; if none qualifies, take the best one anyway.
 3. Votes. Each joined guest holds one up or down choice per track. A vote moves only that track's score, then the queue is sorted and the same genre rerank runs again.
 

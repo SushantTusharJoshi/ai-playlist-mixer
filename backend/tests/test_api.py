@@ -115,3 +115,43 @@ def test_summary_cooldown(client: TestClient, party_with_member: tuple[str, str]
     assert resp2.status_code == 200
     summary2 = resp2.json()["ai_summary"]
     assert summary2 == summary1
+
+
+def _join_guest(client: TestClient, code: str, name: str = "Bea", genre: str = "rock") -> dict[str, str]:
+    resp = client.post(f"/party/{code}/join", json={"display_name": name, "genre": genre})
+    assert resp.status_code == 200
+    return {"X-User-Key": resp.json()["user_key"]}
+
+
+def test_generate_keeps_tracks_guests_added(client: TestClient, party_code: str):
+    guest = _join_guest(client, party_code)
+    added = {"id": "yt-dQw4w9WgXcQ", "name": "Guest pick", "artist": "Someone", "youtube_id": "dQw4w9WgXcQ"}
+    assert client.post(f"/party/{party_code}/add-track", json=added, headers=guest).json()["added"] is True
+
+    queue = client.post(f"/party/{party_code}/generate-queue", headers=host_headers(party_code)).json()["queue"]
+
+    kept = [q for q in queue if q["track_id"] == added["id"]]
+    assert len(kept) == 1, "Generate dropped a track a guest added"
+    assert kept[0]["youtube_id"] == "dQw4w9WgXcQ"  # its playable source survives
+    assert "added by Bea" in kept[0]["reasons"]
+    assert len(queue) > 1  # the guests' candidate tracks are still ranked in too
+
+
+def test_generate_keeps_added_track_votes_and_credit_across_presses(client: TestClient, party_code: str):
+    guest = _join_guest(client, party_code)
+    added = {"id": "sp-guest-1", "name": "Guest pick", "artist": "Someone", "genres": ["rock"]}
+    client.post(f"/party/{party_code}/add-track", json=added, headers=guest)
+    assert client.post(f"/party/{party_code}/vote", json={"track_id": added["id"], "value": 1},
+                       headers=guest).status_code == 200
+
+    for _ in range(2):
+        queue = client.post(f"/party/{party_code}/generate-queue", headers=host_headers(party_code)).json()["queue"]
+        kept = [q for q in queue if q["track_id"] == added["id"]]
+        assert len(kept) == 1
+        assert kept[0]["votes"] == 1
+        assert kept[0]["reasons"].count("added by Bea") == 1
+        assert "boosted by guest votes" in kept[0]["reasons"]
+
+    # The vote limit still holds for the kept track: the same vote again is rejected.
+    assert client.post(f"/party/{party_code}/vote", json={"track_id": added["id"], "value": 1},
+                       headers=guest).status_code == 400
