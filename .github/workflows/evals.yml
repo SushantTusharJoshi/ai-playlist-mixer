@@ -74,16 +74,18 @@ jobs:
         with:
           persist-credentials: false
 
-      # 7 cases plus 7 judge calls; the caps stop a runaway run.
-      - name: Party summary suite (Groq, judged)
+      # 11 cases plus 11 judge calls; the caps stop a runaway run. Critical (security) cases must
+      # pass; quality cases are compared with the baseline inside the suite's regression tolerance.
+      - name: Party summary suite (Groq, judged, vs baseline)
         if: ${{ env.GROQ_API_KEY != '' }}
         uses: SushantTusharJoshi/llm-eval-kit@main
         with:
           suite: backend/evals/kit/party_summary.groq.json
+          baseline: backend/evals/kit/baseline.groq.json
           provider: groq
           model: openai/gpt-oss-120b
           max-cost: "0.05"
-          extra-args: "--no-cache --max-calls 20"
+          extra-args: "--no-cache --max-calls 30"
           report-path: reports/party-summary-groq.json
 
       - name: Upload report
