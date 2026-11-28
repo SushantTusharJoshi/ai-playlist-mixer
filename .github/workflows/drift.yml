@@ -1,0 +1,123 @@
+# Nightly production drift check for the LLM party summary.
+#
+# Providers can change the model behind the same name, so the live Groq suite (the same one
+# evals.yml runs on main) is replayed every night against the committed live baseline,
+# backend/evals/kit/baseline.groq.json, with the same model and the same cost cap.
+#
+#   drift: a critical case fails, quality drops beyond the suite tolerance, or the run stops on a cap.
+#          The job fails and ONE open issue labelled `drift`, titled "LLM summary drift detected",
+#          gets the summary (opened if none is open, commented on if one is).
+#   clean: if that issue is open, it gets a comment saying the latest run is clean. It is never
+#          closed automatically; a person closes it after reading the runs.
+#   error: no report (provider outage, bad key). The job fails, no issue is touched.
+#
+# Skips with a notice when the GROQ_API_KEY secret is not set.
+name: Drift
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# One drift run at a time; a new one waits instead of cancelling a run that is mid-spend.
+concurrency:
+  group: drift
+  cancel-in-progress: false
+
+env:
+  ISSUE_TITLE: LLM summary drift detected
+  ISSUE_LABEL: drift
+  REPORT: reports/party-summary-groq.json
+  SUMMARY: reports/drift-summary.md
+
+jobs:
+  party-summary-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Skip without a key
+        if: ${{ env.GROQ_API_KEY == '' }}
+        run: echo "::notice::GROQ_API_KEY is not set; skipping the nightly drift check."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.GROQ_API_KEY != '' }}
+        with:
+          persist-credentials: false
+
+      # Same action and inputs as the party-summary-groq job in evals.yml, plus the live baseline.
+      # continue-on-error so the verdict step can read the report and decide what drift means.
+      - name: Party summary suite (Groq, judged, vs baseline)
+        id: suite
+        if: ${{ env.GROQ_API_KEY != '' }}
+        continue-on-error: true
+        uses: SushantTusharJoshi/llm-eval-kit@main
+        with:
+          suite: backend/evals/kit/party_summary.groq.json
+          baseline: backend/evals/kit/baseline.groq.json
+          provider: groq
+          model: openai/gpt-oss-120b
+          max-cost: "0.05"
+          extra-args: "--no-cache --max-calls 20"
+          report-path: ${{ env.REPORT }}
+
+      - name: Verdict and job summary
+        id: verdict
+        if: ${{ env.GROQ_API_KEY != '' }}
+        run: |
+          python3 .github/scripts/drift_report.py "$REPORT" "$SUMMARY"
+          cat "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: ${{ always() && env.GROQ_API_KEY != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: party-summary-drift-report
+          path: |
+            ${{ env.REPORT }}
+            ${{ env.SUMMARY }}
+          if-no-files-found: ignore
+
+      - name: Open or update the drift issue
+        if: ${{ steps.verdict.outputs.status == 'drift' }}
+        run: |
+          if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx "$ISSUE_LABEL"; then
+            gh label create "$ISSUE_LABEL" --color B60205 \
+              --description "Nightly LLM summary drift check found a regression"
+          fi
+          number=$(gh issue list --state open --label "$ISSUE_LABEL" --limit 100 --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$SUMMARY"
+            echo "::warning::Drift detected; commented on issue #$number."
+          else
+            url=$(gh issue create --title "$ISSUE_TITLE" --label "$ISSUE_LABEL" --body-file "$SUMMARY")
+            echo "::warning::Drift detected; opened $url."
+          fi
+
+      - name: Note a clean run on the open drift issue
+        if: ${{ steps.verdict.outputs.status == 'clean' }}
+        run: |
+          number=$(gh issue list --state open --label "$ISSUE_LABEL" --limit 100 --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            printf 'The latest drift check is clean: %s\n\nLeft open for a person to close.\n' "$RUN_URL" \
+              > clean-comment.md
+            gh issue comment "$number" --body-file clean-comment.md
+          fi
+
+      - name: Fail on drift or a broken run
+        if: ${{ env.GROQ_API_KEY != '' && steps.verdict.outputs.status != 'clean' }}
+        env:
+          STATUS: ${{ steps.verdict.outputs.status }}
+        run: |
+          echo "::error::Drift check status: ${STATUS:-unknown}. See the job summary."
+          exit 1
