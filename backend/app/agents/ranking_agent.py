@@ -15,20 +15,23 @@ class RankingAgent:
     Later: swap this with LambdaMART / LightGBMRanker / contextual bandit.
     """
 
-    def build_candidate_pool(self, users: list[UserProfile]) -> list[Track]:
+    def build_candidate_pool(self, users: list[UserProfile], extra: list[Track] | None = None) -> list[Track]:
         by_id: dict[str, Track] = {}
         for user in users:
             for track in user.candidate_tracks:
                 by_id[track.id] = track
+        for track in extra or []:
+            by_id.setdefault(track.id, track)
         return list(by_id.values())
 
     # What it does: scores every guest's candidate track for the whole room and sorts best first.
     # Catch it: "How do you rank songs for a group instead of one listener?"
     # Card: docs/cards/ranking-score.md
-    def rank(self, users: list[UserProfile], votes: dict[str, int] | None = None) -> list[QueueItem]:
+    def rank(self, users: list[UserProfile], votes: dict[str, int] | None = None,
+             extra: list[Track] | None = None) -> list[QueueItem]:
         votes = votes or defaultdict(int)
-        # STEP: pool every guest's candidate tracks, de-duplicated by id
-        candidates = self.build_candidate_pool(users)
+        # STEP: pool every guest's candidate tracks plus tracks added to the queue by hand, de-duplicated by id
+        candidates = self.build_candidate_pool(users, extra)
         queue: list[QueueItem] = []
 
         # LOOP: score each candidate against every guest

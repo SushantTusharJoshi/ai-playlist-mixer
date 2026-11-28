@@ -211,6 +211,8 @@ def join(code: str, req: JoinRequest):
     return {"user_id":uid, "user_key":user_key, "members":[{"id":m.id,"display_name":m.display_name,"genre":m.genre} for m in p.members]}
 
 # ── Generate Queue ────────────────────────────────
+ADDED_REASONS = ("added by ", "queued by ")  # reasons add-track and queue-next write
+
 @app.post("/party/{code}/generate-queue")
 async def generate_queue(code: str, x_host_key: str | None = Header(None)):
     with STATE_LOCK:
@@ -219,7 +221,15 @@ async def generate_queue(code: str, x_host_key: str | None = Header(None)):
         if not p.members: raise HTTPException(400, "Add guests first")
 
         votes = voting_agent.get_votes(p)
-        p.queue = ranking_agent.rank(p.members, votes=votes)
+        # Tracks guests added by hand are not in anyone's candidate pool: rank them with the rest
+        # instead of dropping them, and keep their source and "added by" credit.
+        pool = {t.id for u in p.members for t in u.candidate_tracks}
+        added = {q.track.id: q for q in p.queue if q.track.id not in pool}
+        p.queue = ranking_agent.rank(p.members, votes=votes, extra=[q.track for q in added.values()])
+        for item in p.queue:
+            if item.track.id in added:
+                credit = [r for r in added[item.track.id].reasons if r.startswith(ADDED_REASONS)]
+                item.reasons = credit + item.reasons
         p.queue = fairness_agent.rerank(p.queue)
 
         cr = cluster_guests(p.members)
